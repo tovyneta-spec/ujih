@@ -29,6 +29,9 @@ export function sanitizeSettings(raw: unknown): PlayerSettings {
   const d = DEFAULT_CAMERA;
   const L = CAMERA_LIMITS;
   const camera: CameraSettings = {
+    ballCamMode: (['always', 'hold', 'auto', 'never'] as const).includes(rc.ballCamMode as never)
+      ? (rc.ballCamMode as CameraSettings['ballCamMode'])
+      : d.ballCamMode,
     fov: num(rc.fov, L.fov.min, L.fov.max, d.fov),
     distance: num(rc.distance, L.distance.min, L.distance.max, d.distance),
     height: num(rc.height, L.height.min, L.height.max, d.height),
@@ -52,7 +55,13 @@ export function sanitizeSettings(raw: unknown): PlayerSettings {
   }
   return {
     camera,
-    controls: { scheme, keys, mouseSensitivity: num(rk.mouseSensitivity, 0.5, 2, 1) },
+    controls: {
+      scheme,
+      keys,
+      mouseSensitivity: num(rk.mouseSensitivity, 0.5, 2, 1),
+      flipAssist: typeof rk.flipAssist === 'boolean' ? rk.flipAssist : true,
+      flipIgnoreMouse: typeof rk.flipIgnoreMouse === 'boolean' ? rk.flipIgnoreMouse : true,
+    },
   };
 }
 

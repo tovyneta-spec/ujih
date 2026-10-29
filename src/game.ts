@@ -184,6 +184,8 @@ export class Game {
     const k = this.keyboard;
     k.scheme = s.controls.scheme;
     k.mouseSensitivity = s.controls.mouseSensitivity;
+    k.flipAssist = s.controls.flipAssist;
+    k.flipIgnoreMouse = s.controls.flipIgnoreMouse;
     k.setBindings(effectiveBindings(s.controls));
     this.hud.setScheme(s.controls.scheme === 'mouse');
   }
@@ -680,7 +682,7 @@ export class Game {
 
     if (this.state === 'playing') {
       if (k.consumePress('pause')) this.pause();
-      if (k.consumePress('ballCam')) this.renderer.rig.ballCam = !this.renderer.rig.ballCam;
+      this.updateBallCam(k, world);
       this.renderer.rig.lookBack = k.isDown('lookBack');
       if (inReplay && k.consumePress('jump')) this.skipReplay();
       if (k.consumePress('reset')) {
@@ -743,6 +745,33 @@ export class Game {
       }
     }
     if (!this.debugEl.hidden && human) this.updateDebug(human);
+  }
+
+  private ballCamOn = true;
+  private autoBall = false;
+
+  /** Decide si la cámara mira a la pelota según el modo elegido en Ajustes. */
+  private updateBallCam(k: KeyboardInput, world: World): void {
+    const rig = this.renderer.rig;
+    const mode = this.settings.camera.ballCamMode;
+    const pressed = k.consumePress('ballCam');
+    if (mode === 'always') {
+      if (pressed) this.ballCamOn = !this.ballCamOn;
+      rig.ballCam = this.ballCamOn;
+    } else if (mode === 'hold') rig.ballCam = k.isDown('ballCam');
+    else if (mode === 'never') rig.ballCam = false;
+    else {
+      const car = this.human;
+      if (!car) return;
+      // Cerca y delante → activa; lejos o detrás → desactiva (con histéresis para evitar parpadeos).
+      const dx = world.ball.pos.x - car.pos.x;
+      const dy = world.ball.pos.y - car.pos.y;
+      const dist = Math.hypot(dx, dy) || 1;
+      const front = (dx * car.forward.x + dy * car.forward.y) / dist;
+      if (this.autoBall) this.autoBall = dist < 2800 && front > -0.1;
+      else this.autoBall = dist < 2200 && front > 0.3;
+      rig.ballCam = this.autoBall;
+    }
   }
 
   /** Oyente de audio: posición y eje derecho de la cámara, en coordenadas de la simulación. */

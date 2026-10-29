@@ -11,7 +11,8 @@ import {
   resolveMutators,
 } from '../src/config';
 import { defaultSettings, sanitizeSettings } from '../src/storage';
-import { World } from '../src/sim';
+import { World, neutralInput } from '../src/sim';
+import { flipSide } from '../src/input/flip';
 import { buildNetWorld } from '../src/net/setup';
 import { packSnapshot, snapshotSize, unpackSnapshot } from '../src/net/state';
 import { FORMATS } from '../server/room';
@@ -124,5 +125,48 @@ describe('pelota: subpasos contra el estadio', () => {
       }
     }
     expect(worst).toBe(0);
+  });
+});
+
+describe('ayudas de flip', () => {
+  const base = { mouse: false, ignoreMouse: true, assist: true };
+  it('con avance y poca entrada lateral el flip sale recto; con intención lateral clara, no', () => {
+    expect(flipSide(1, 0.3, 0, base)).toBe(0);
+    expect(flipSide(-1, -0.6, 0, base)).toBe(0);
+    expect(flipSide(1, 1, 0, base)).toBe(1);
+    expect(flipSide(0, 1, 0, base)).toBe(1);
+  });
+  it('sin la ayuda se respeta la entrada tal cual', () => {
+    expect(flipSide(1, 0.3, 0, { ...base, assist: false })).toBe(0.3);
+  });
+  it('esquema de ratón: el volante se ignora y el lateral sale de Q/E', () => {
+    const m = { mouse: true, ignoreMouse: true, assist: true };
+    expect(flipSide(1, 0.9, 0, m)).toBe(0);
+    expect(flipSide(0, 0.9, -1, m)).toBe(-1);
+    expect(flipSide(0, 0.9, 0, { ...m, ignoreMouse: false })).toBe(0.9);
+  });
+  it('en la simulación un flip con yaw residual ya no genera velocidad lateral', () => {
+    const run = (yaw: number): number => {
+      const w = new World(1);
+      const car = w.addCar(0, 'octane');
+      w.resetKickoff();
+      car.pos.set(0, 0, 400);
+      car.vel.set(0, 0, 0);
+      w.cars[0].quat.set(0, 0, 0, 1);
+      const inp = neutralInput();
+      inp.jump = true;
+      w.setInput(0, inp);
+      for (let i = 0; i < 12; i++) w.step();
+      inp.jump = false;
+      w.setInput(0, inp);
+      for (let i = 0; i < 30; i++) w.step();
+      inp.jump = true;
+      inp.pitch = -1;
+      inp.yaw = flipSide(1, yaw, 0, base);
+      w.setInput(0, inp);
+      w.step();
+      return Math.abs(car.vel.y);
+    };
+    expect(run(0.3)).toBeLessThan(1);
   });
 });

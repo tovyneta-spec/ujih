@@ -1,5 +1,22 @@
 // Ajustes de cámara por defecto (modificables desde Ajustes en fases posteriores).
+/** Cuándo mira la cámara hacia la pelota. */
+export type BallCamMode = 'always' | 'hold' | 'auto' | 'never';
+
+export const BALLCAM_MODES: Record<BallCamMode, { name: string; description: string }> = {
+  always: { name: 'Siempre', description: 'Cámara de pelota activa; C la alterna.' },
+  hold: {
+    name: 'Con tecla',
+    description: 'Cámara de coche; mantén C para mirar a la pelota.',
+  },
+  auto: {
+    name: 'Automática',
+    description: 'Mira a la pelota solo cuando está cerca y delante de ti.',
+  },
+  never: { name: 'Nunca', description: 'Cámara de coche siempre.' },
+};
+
 export interface CameraSettings {
+  ballCamMode: BallCamMode;
   fov: number;
   distance: number;
   height: number;
@@ -12,6 +29,7 @@ export interface CameraSettings {
 }
 
 export const DEFAULT_CAMERA: CameraSettings = {
+  ballCamMode: 'hold',
   fov: 110,
   distance: 270,
   height: 100,

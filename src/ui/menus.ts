@@ -3,6 +3,7 @@ import {
   ANTENNAS,
   BODY_IDS,
   BOT_PROFILES,
+  BALLCAM_MODES,
   CAMERA_LIMITS,
   DEFAULT_CAMERA,
   DEFAULT_CONTROLS,
@@ -830,7 +831,15 @@ export class Menus {
       return `<label class="field slider"><span>${l.label} <b data-camval="${key}">${fmt(key, cam[key])}</b></span>
         <input type="range" min="${l.min}" max="${l.max}" step="${l.step}" value="${cam[key]}" data-cam="${key}" /></label>`;
     };
+    const modes = (Object.keys(BALLCAM_MODES) as (keyof typeof BALLCAM_MODES)[])
+      .map(
+        (k) =>
+          `<button type="button" class="seg ${cam.ballCamMode === k ? 'on' : ''}" data-ballcam="${k}">${BALLCAM_MODES[k].name}</button>`,
+      )
+      .join('');
     const cameraTab = `
+      <div class="row"><span>Cámara de pelota</span><div class="segs">${modes}</div></div>
+      <p class="note">${BALLCAM_MODES[cam.ballCamMode].description}</p>
       ${(Object.keys(CAMERA_LIMITS) as (keyof typeof CAMERA_LIMITS)[]).map(camSlider).join('')}
       <label class="field check"><input type="checkbox" data-camshake ${cam.shake ? 'checked' : ''} />
         <span>Sacudida de cámara (goles y demoliciones)</span></label>
@@ -849,6 +858,15 @@ export class Menus {
           `<button type="button" class="seg ${ctl.scheme === k ? 'on' : ''}" data-scheme="${k}">${SCHEMES[k].name}</button>`,
       )
       .join('');
+    const flipOpts = `
+      <label class="field check"><input type="checkbox" data-flipassist ${ctl.flipAssist ? 'checked' : ''} />
+        <span>Flip recto: sin diagonales ni croqueta si pulsas adelante/atrás</span></label>
+      ${
+        ctl.scheme === 'mouse'
+          ? `<label class="field check"><input type="checkbox" data-flipmouse ${ctl.flipIgnoreMouse ? 'checked' : ''} />
+              <span>El ratón no decide la dirección del flip (lateral con Q/E)</span></label>`
+          : ''
+      }`;
     const controlsTab = `
       <div class="row"><span>Esquema</span><div class="segs">${schemes}</div></div>
       <p class="note">${SCHEMES[ctl.scheme].description}</p>
@@ -859,7 +877,8 @@ export class Menus {
              <p class="note">Haz clic en la partida para capturar el ratón (desaparece el cursor). Esc lo libera y pausa el juego.</p>`
           : `<div class="keys">${keyRows}</div>
              <div class="buttons"><button class="btn" data-go="keyreset">Restaurar teclas</button></div>`
-      }`;
+      }
+      ${flipOpts}`;
     this.render(`
       <h2>Ajustes</h2>
       <div class="segs tabs">
@@ -877,6 +896,29 @@ export class Menus {
       }),
     );
     this.on('[data-go=back]', () => this.closeSettings());
+    this.root.querySelectorAll<HTMLButtonElement>('[data-ballcam]').forEach((b) =>
+      b.addEventListener('click', () => {
+        const camera = {
+          ...this.settings.camera,
+          ballCamMode: b.dataset.ballcam as CameraSettings['ballCamMode'],
+        };
+        this.settings = { ...this.settings, camera };
+        this.commitSettings();
+        this.renderSettings();
+      }),
+    );
+    const flipToggle = (sel: string, key: 'flipAssist' | 'flipIgnoreMouse'): void => {
+      this.root.querySelector<HTMLInputElement>(sel)?.addEventListener('change', (e) => {
+        const controls = {
+          ...this.settings.controls,
+          [key]: (e.target as HTMLInputElement).checked,
+        };
+        this.settings = { ...this.settings, controls };
+        this.commitSettings();
+      });
+    };
+    flipToggle('[data-flipassist]', 'flipAssist');
+    flipToggle('[data-flipmouse]', 'flipIgnoreMouse');
     this.root.querySelectorAll<HTMLInputElement>('input[data-cam]').forEach((i) =>
       i.addEventListener('input', () => {
         const key = i.dataset.cam as keyof typeof CAMERA_LIMITS;

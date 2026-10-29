@@ -4,6 +4,7 @@
 import { DEFAULT_KEYS, KEYBOARD_RAMP } from '../config';
 import type { Action, ControlScheme } from '../config';
 import { neutralInput } from '../sim';
+import { flipSide } from './flip';
 import type { CarInput } from '../sim';
 
 export class KeyboardInput {
@@ -27,6 +28,11 @@ export class KeyboardInput {
   /** Esquema activo y estado del ratón (eje horizontal normalizado −1..1 y botones). */
   scheme: ControlScheme = 'keyboard';
   mouseSensitivity = 1;
+  /** Ayudas de flip (ver ControlSettings). */
+  flipAssist = true;
+  flipIgnoreMouse = true;
+  private flipWindow = 0;
+  private prevJump = false;
   private mouseX = 0;
   private mouseSteerPerPx = 0.0045;
   private mouseLeft = false;
@@ -161,6 +167,23 @@ export class KeyboardInput {
     return axis < target ? Math.min(target, axis + step) : Math.max(target, axis - step);
   }
 
+  /**
+   * Ayudas para elegir la dirección del flip. Se aplican en unos pocos ticks tras pulsar saltar (el
+   * segundo salto en el aire es el flip): no afectan al control normal en el aire.
+   */
+  private shapeFlip(o: CarInput, mouse: boolean, digitalSide: number, roll: number): void {
+    if (o.jump && !this.prevJump) this.flipWindow = 4;
+    this.prevJump = o.jump;
+    if (this.flipWindow <= 0) return;
+    this.flipWindow--;
+    const side = mouse ? this.mouseX : digitalSide;
+    o.yaw = flipSide(-o.pitch, side, roll, {
+      mouse,
+      ignoreMouse: this.flipIgnoreMouse,
+      assist: this.flipAssist,
+    });
+  }
+
   /** Lee el estado justo antes de cada paso de física. */
   poll(dt: number): CarInput {
     const t = (this.isDown('throttleUp') ? 1 : 0) - (this.isDown('throttleDown') ? 1 : 0);
@@ -182,6 +205,7 @@ export class KeyboardInput {
     o.yaw = handbrake ? 0 : ax;
     o.roll = Math.max(-1, Math.min(1, r + (handbrake ? ax : 0)));
     o.jump = mouse ? this.mouseRight : this.isDown('jump');
+    this.shapeFlip(o, mouse, s, r);
     o.boost = mouse ? this.mouseLeft : this.isDown('boost');
     o.handbrake = handbrake;
     return o;

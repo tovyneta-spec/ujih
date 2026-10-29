@@ -12,6 +12,7 @@ import {
   Mesh,
   MeshBasicMaterial,
   MeshLambertMaterial,
+  MeshPhysicalMaterial,
   MeshStandardMaterial,
   OctahedronGeometry,
   PlaneGeometry,
@@ -484,7 +485,16 @@ export function buildCarMesh(spec: CarBodySpec, look: CarLook, quality: Quality)
   const m = spec.model;
   const shape = SHAPES[spec.id];
 
-  const body = mk(quality, look.primary, 0.28, 0.5);
+  // Pintura con capa de barniz (sólo en calidad media/alta: Lambert en la baja).
+  const body = quality.lambert
+    ? mk(quality, look.primary, 0.28, 0.5)
+    : new MeshPhysicalMaterial({
+        color: look.primary,
+        roughness: 0.32,
+        metalness: 0.55,
+        clearcoat: 1,
+        clearcoatRoughness: 0.06,
+      });
   const trim = mk(quality, look.secondary, 0.45, 0.3);
   const dark = mk(quality, 0x14171f, 0.6, 0.2);
   const decalMat = mk(quality, look.decalColor, 0.4, 0.2);
@@ -629,6 +639,19 @@ export function buildCarMesh(spec: CarBodySpec, look: CarLook, quality: Quality)
         c.zb + (c.Z(0.4) - c.zb) * 0.5,
         c.dark,
       );
+    }
+  }
+
+  // Parrilla delantera, difusor y escapes visibles (los mismos materiales: sin llamadas extra).
+  {
+    const gz = c.Z(0.16);
+    box(c, 2, W * shape.lowerWidth * 0.5, (c.Z(0.4) - c.zb) * 0.22, c.X(1) + 3.2, 0, gz, c.dark);
+    box(c, 7, W * shape.lowerWidth * 0.86, 2, c.X(0.0) - 2, 0, c.zb + 1.5, c.dark);
+    for (const sy of [-1, 1]) {
+      const pipe = new Mesh(new CylinderGeometry(2.6, 2.6, 6, 10), c.trim);
+      pipe.rotation.z = Math.PI / 2;
+      pipe.position.set(c.X(0) - 3, sy * W * 0.22, c.Z(0.18));
+      c.add(pipe);
     }
   }
 

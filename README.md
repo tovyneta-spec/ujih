@@ -107,6 +107,9 @@ npm run format     # Prettier
 - **Esquemas de control**: _Teclado_ (WASD, reasignable tecla a tecla) y **67tetitasdani**: `W` acelera,
   `S` frena y marcha atrás, el ratón gira moviéndolo a izquierda/derecha (puntero bloqueado con un clic, movimiento relativo;
   el volante se recentra solo; sensibilidad ajustable; Esc libera el ratón y pausa), clic izquierdo = turbo, clic derecho = salto. `Q/E`, `Ctrl/Z`, `C`, `V` siguen igual.
+- **Cámara de pelota** configurable (Ajustes → Cámara): siempre, con tecla (`C` mantenida; por defecto), automática o nunca.
+- **Ayudas de flip** (Ajustes → Controles, para cualquier esquema): _flip recto_ (sin diagonales ni croqueta si pulsas
+  adelante/atrás) y, en 67tetitasdani, _el ratón no decide la dirección del flip_ (lateral con Q/E).
 - **Formato 4v4** (local y online) y **9 carrocerías**: se suman _Víbora_ (cuña baja), _Titán_ (camioneta
   alta con ruedas enormes) y _Burbuja_ (microcoche con cúpula).
 - **Garaje** con pestañas (coche, pintura, calcomanías, ruedas, efectos), tarjetas de carrocería con

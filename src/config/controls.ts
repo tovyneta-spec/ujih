@@ -86,12 +86,18 @@ export interface ControlSettings {
   keys: Partial<Record<Action, string>>;
   /** Sensibilidad del ratón (0,5–2) en el esquema de ratón. */
   mouseSensitivity: number;
+  /** Flip recto: con entrada de avance/retroceso y poca lateral, el flip sale sin diagonal ni croqueta. */
+  flipAssist: boolean;
+  /** Esquema de ratón: el volante no decide la dirección del flip (sólo W/S y Q/E). */
+  flipIgnoreMouse: boolean;
 }
 
 export const DEFAULT_CONTROLS: ControlSettings = {
   scheme: 'keyboard',
   keys: {},
   mouseSensitivity: 1,
+  flipAssist: true,
+  flipIgnoreMouse: true,
 };
 
 /** Teclas efectivas de cada acción según el esquema y las personalizaciones. */
