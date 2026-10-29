@@ -54,12 +54,19 @@ coordenadas de la simulación.
 - La hitbox coincide con el centro físico; el desplazamiento visual (`visualOffset`) sólo afecta al modelo.
 - El flip aplica un impulso horizontal de 500 uu/s en el rumbo plano del coche y un par controlado de ≈0,65 s.
 - La pelota hace "gol" al cruzar por completo la línea (centro a más de su radio tras la línea de fondo).
-- Las demoliciones, el choque coche–coche, el reloj y las reglas llegan en F2 (la simulación ya reserva
-  `Car.demolished`).
+- El reloj y las reglas viven en la simulación (`sim/match.ts`) para que el servidor autoritativo (F7) y las
+  repeticiones usen la misma lógica. Sin `startMatch()` el mundo está en práctica libre (sin reglas).
+- Una demolición exige embestir con la zona frontal (45 uu del morro) yendo supersónico (≥2200 uu/s); el
+  atacante conserva su velocidad. Los empujones añaden un impulso extra al rival (`CAR_CAR`).
+- Parada = el rival había hecho un tiro a puerta (predicción balística sin rebotes) y su trayectoria deja
+  de ir a puerta tras el toque; épica si el tiro iba a ≥2200 uu/s y ocurre a ≤1400 uu de la línea.
+- Se considera autogol si el último toque fue del equipo que defiende esa portería.
 
 ## Problemas conocidos (F1)
 
-- Con un único coche aún no hay colisión coche–coche (F2).
+- Sin menús ni bots (F3/F4): las partidas de prueba se arrancan por URL con rivales inmóviles.
+- La repetición del gol (`replayTime`) está soportada por la simulación pero desactivada hasta F4.
+- La explosión de demolición es sólo ocultar el coche; los efectos llegan en F5.
 - Los modelos de las 6 carrocerías comparten generador procedural con parámetros distintos; se diferenciarán
   más en F5.
 - La sensación de juego (curvas de giro, flip, golpeo) se ha calibrado con pruebas numéricas, no con jugadores:

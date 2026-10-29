@@ -132,6 +132,21 @@ export const CAR = {
   },
 } as const;
 
+/** Choques coche–coche, empujones y demoliciones. */
+export const CAR_CAR = {
+  restitution: 0.2,
+  /** Zona frontal (uu desde el morro) que cuenta como "embestida". */
+  frontZone: 45,
+  /** Velocidad de acercamiento mínima para que un empujón añada impulso (uu/s). */
+  bumpMinClosing: 300,
+  /** Impulso extra al rival en un empujón: fracción de la velocidad de acercamiento + base. */
+  bumpFactor: 0.35,
+  bumpBase: 100,
+  bumpUpward: 0.18,
+  /** Tiempo (s) entre empujones del mismo par. */
+  bumpCooldown: 0.25,
+} as const;
+
 /** Evalúa una curva lineal a tramos, saturada en los extremos. */
 export function sampleCurve(curve: Curve, x: number): number {
   const first = curve[0];

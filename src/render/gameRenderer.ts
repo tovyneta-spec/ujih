@@ -150,6 +150,7 @@ export class GameRenderer {
       this.tq.set(car.prevQuat.x, car.prevQuat.y, car.prevQuat.z, car.prevQuat.w);
       this.tq2.set(car.quat.x, car.quat.y, car.quat.z, car.quat.w);
       g.quaternion.copy(this.tq.slerp(this.tq2, alpha));
+      g.visible = !car.demolished;
 
       // Ruedas: giro por distancia recorrida y dirección visual.
       v.wheelSpin += (car.forwardSpeed * frameDt) / car.body.model.wheelRadius;

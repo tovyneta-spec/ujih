@@ -90,6 +90,9 @@ export class Car {
   lastPadPickup: BoostPad | null = null;
   /** Reservado para las demoliciones (F2): un coche destruido no interactúa. */
   demolished = false;
+  respawnTimer = 0;
+  /** Radio envolvente de la hitbox (fase ancha). */
+  radius = 0;
 
   constructor(id: number, team: 0 | 1, body: CarBodySpec) {
     this.id = id;
@@ -108,6 +111,7 @@ export class Car {
     CORNER_SIGNS.forEach((s, i) => {
       this.corners[i].set(s[0] * this.half.x, s[1] * this.half.y, s[2] * this.half.z);
     });
+    this.radius = this.half.length();
     this.updateAxes();
   }
 
@@ -128,6 +132,8 @@ export class Car {
     this.airTime = 0;
     this.groundLock = 0;
     this.prevJump = false;
+    this.demolished = false;
+    this.respawnTimer = 0;
     this.updateAxes();
   }
 

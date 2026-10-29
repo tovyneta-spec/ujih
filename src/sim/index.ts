@@ -6,3 +6,4 @@ export * from './math';
 export * from './pads';
 export * from './rng';
 export * from './world';
+export * from './match';

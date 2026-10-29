@@ -6,9 +6,15 @@ TypeScript estricto + Vite + Three.js (WebGL2) con una simulación física propi
 > Juego original: no usa nombres, logos, modelos, texturas ni sonidos de Psyonix/Epic Games.
 > Todos los assets se generan por código (ver `CREDITS.md`).
 
-**Estado: Fase F1** (ver [Plan de fases](#plan-de-fases)). Hay una sesión de práctica libre jugable:
-estadio completo, pelota, coche con todas las mecánicas de conducción y aéreas, pads de turbo, cámara de
-pelota/coche, HUD de turbo y modo depuración.
+**Estado: Fase F2** (ver [Plan de fases](#plan-de-fases)). Práctica libre jugable (estadio, pelota, coche con
+todas las mecánicas, pads, cámaras, HUD, depuración) y **partida con reglas Soccar**: saque 3-2-1, reloj,
+goles con goleador y velocidad, prórroga con gol de oro, demoliciones, puntuación y pantalla final.
+
+Modos de prueba (hasta que lleguen menús y bots en F3/F4), por URL:
+
+- `/` práctica libre
+- `/?mode=match` 1v1, `/?mode=match2` 2v2, `/?mode=match3` 3v3 — rivales y compañeros inmóviles; `R` al
+  terminar = revancha.
 
 ## Instalación y ejecución
 
@@ -71,8 +77,9 @@ src/
     arena.ts       SDF analítico del estadio + detección de gol
     ball.ts        pelota (rebote, fricción → giro)
     car.ts         controlador del coche (suelo/paredes/techo, salto, flip, aire, turbo)
-    collisions.ts  coche↔estadio, pelota↔coche (impulso extra de golpeo)
+    collisions.ts  coche↔estadio, pelota↔coche (impulso extra), coche↔coche (SAT)
     pads.ts        34 pads de turbo
+    match.ts       reglas: fases, reloj, goles, prórroga, puntuación, estadísticas
     world.ts       estado, paso, eventos, snapshots (serializable)
     input.ts       CarInput: la única estructura de entrada
   render/   Three.js: estadio procedural, coche, pelota, pads, cámara, depuración

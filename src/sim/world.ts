@@ -1,19 +1,45 @@
-import { CAR_BODIES, KICKOFF_SPOTS, PHYSICS } from '../config';
-import type { CarBodyId } from '../config';
+import { CAR_BODIES, CAR_CAR, KICKOFF_SPOTS, PHYSICS } from '../config';
+import type { CarBodyId, MatchConfig } from '../config';
 import { goalScoredBy } from './arena';
 import { Ball } from './ball';
 import { Car } from './car';
-import { collideBallCar, resolveCarArena } from './collisions';
-import type { BallCarHit } from './collisions';
+import { applyBump, bumpInfo, collideBallCar, collideCarCar, resolveCarArena } from './collisions';
+import type { BallCarHit, CarCarContact } from './collisions';
 import type { CarInput } from './input';
 import { neutralInput } from './input';
+import { Match } from './match';
+import type { MatchSnapshot } from './match';
 import { BoostPad, createPads, updatePads } from './pads';
+import { Vec3 } from './math';
 import { Rng } from './rng';
 
 export type SimEvent =
   | { type: 'ballTouch'; carId: number; relSpeed: number; flipReset: boolean }
   | { type: 'padPickup'; carId: number; padIndex: number }
   | { type: 'goal'; team: 0 | 1 }
+  | {
+      type: 'matchGoal';
+      team: 0 | 1;
+      scorerId: number;
+      assistId: number;
+      speedKmh: number;
+      ownGoal: boolean;
+    }
+  | {
+      type: 'award';
+      carId: number;
+      kind: 'goal' | 'assist' | 'save' | 'epicSave' | 'shot' | 'demo';
+      points: number;
+    }
+  | { type: 'demolition'; attackerId: number; victimId: number }
+  | { type: 'respawn'; carId: number }
+  | { type: 'bump'; attackerId: number; victimId: number }
+  | { type: 'countdown'; n: number }
+  | { type: 'go' }
+  | { type: 'kickoffReset' }
+  | { type: 'overtime' }
+  | { type: 'replayStart' }
+  | { type: 'matchEnd'; winner: -1 | 0 | 1 }
   | { type: 'jump'; carId: number }
   | { type: 'flip'; carId: number };
 
@@ -32,12 +58,17 @@ export interface WorldSnapshot {
     jumpDir: number[];
   }[];
   pads: { active: boolean; timer: number }[];
+  match: MatchSnapshot;
+  bumps: Record<string, number>;
 }
 
 /** Estado completo de la simulación. Determinista, sin dependencias de DOM ni de Three.js. */
 export class World {
   tick = 0;
-  time = 0;
+  /** Tiempo de simulación (s), derivado del contador de ticks para ser exactamente reproducible. */
+  get time(): number {
+    return this.tick * PHYSICS.dt;
+  }
   readonly rng: Rng;
   readonly ball = new Ball();
   readonly cars: Car[] = [];
@@ -46,6 +77,11 @@ export class World {
   private pickups: BoostPad[] = [];
   private hit: BallCarHit = { flipReset: false, fresh: false, relSpeed: 0 };
   private inputs: CarInput[] = [];
+  readonly match = new Match();
+  private contact: CarCarContact = { normal: new Vec3(), point: new Vec3(), penetration: 0 };
+  private bumpTicks = new Map<number, number>();
+  private preA = new Vec3();
+  private preB = new Vec3();
 
   constructor(seed = 12345) {
     this.rng = new Rng(seed);
@@ -78,7 +114,16 @@ export class World {
       });
     });
     for (const p of this.pads) p.reset();
-    this.events.length = 0;
+    this.bumpTicks.clear();
+  }
+
+  /** Inicia una partida con reglas Soccar (saque con cuenta atrás incluido). */
+  startMatch(config: Partial<MatchConfig> = {}): void {
+    this.match.start(this, config);
+  }
+
+  emit(e: SimEvent): void {
+    this.events.push(e);
   }
 
   /** Devuelve y vacía los eventos acumulados desde la última llamada. */
@@ -96,11 +141,20 @@ export class World {
   step(): void {
     const dt = PHYSICS.dt;
     this.tick++;
-    this.time += dt;
     this.ball.savePrev();
     for (const car of this.cars) car.savePrev();
 
+    if (!this.match.frozen) this.stepPhysics(dt);
+    this.match.update(this);
+  }
+
+  private stepPhysics(dt: number): void {
     for (const car of this.cars) {
+      if (car.demolished) {
+        car.respawnTimer -= dt;
+        if (car.respawnTimer <= 0) this.respawn(car);
+        continue;
+      }
       const wasJumping = car.isJumping;
       const hadFlip = car.flipUsed;
       car.step(dt);
@@ -109,9 +163,11 @@ export class World {
     }
     this.ball.integrate(dt);
 
-    for (const car of this.cars) resolveCarArena(car);
+    for (const car of this.cars) if (!car.demolished) resolveCarArena(car);
+    this.collideCars();
     this.ball.collideArena();
     for (const car of this.cars) {
+      if (car.demolished) continue;
       if (collideBallCar(this.ball, car, this.tick, this.hit)) {
         if (this.hit.flipReset && !car.supported) {
           car.flipUsed = false;
@@ -124,6 +180,7 @@ export class World {
             relSpeed: this.hit.relSpeed,
             flipReset: this.hit.flipReset,
           });
+          this.match.onTouch(this, car);
         }
       }
     }
@@ -141,7 +198,79 @@ export class World {
       this.ball.pos.z,
       this.ball.radius,
     );
-    if (scorer !== -1) this.events.push({ type: 'goal', team: scorer });
+    if (scorer !== -1 && this.match.acceptsGoals) {
+      this.events.push({ type: 'goal', team: scorer });
+      this.match.onGoal(this, scorer);
+    }
+  }
+
+  /** Choques entre coches: empujones con transferencia de momento y demoliciones. */
+  private collideCars(): void {
+    const mode = this.match.enabled ? this.match.config.demolition : 'normal';
+    for (let i = 0; i < this.cars.length; i++) {
+      for (let j = i + 1; j < this.cars.length; j++) {
+        const a = this.cars[i];
+        const b = this.cars[j];
+        if (a.demolished || b.demolished) continue;
+        // Velocidades previas al impulso: las necesita la evaluación de la embestida.
+        this.preA.copy(a.vel);
+        this.preB.copy(b.vel);
+        if (!collideCarCar(a, b, this.contact)) continue;
+        const ia = bumpInfo(a, b, this.contact, this.preA, this.preB);
+        const ib = bumpInfo(b, a, this.contact, this.preB, this.preA);
+        const aSuper = a.supersonic;
+        const bSuper = b.supersonic;
+
+        const key = i * 64 + j;
+        const last = this.bumpTicks.get(key) ?? -Infinity;
+        const cooled = this.tick - last > CAR_CAR.bumpCooldown * PHYSICS.tickRate;
+        const sameTeam = a.team === b.team;
+        const canDemo = mode !== 'off' && (!sameTeam || mode === 'friendly');
+        const needSuper = mode !== 'contact';
+
+        const aHits = ia.front && ia.closing > 0 && (!needSuper || aSuper);
+        const bHits = ib.front && ib.closing > 0 && (!needSuper || bSuper);
+        if (canDemo && (aHits || bHits)) {
+          // Si ambos embisten, gana el de mayor velocidad de acercamiento.
+          const attacker = aHits && (!bHits || ia.closing >= ib.closing) ? a : b;
+          // El atacante conserva su momento: la embestida destruye al rival sin frenarlo.
+          attacker.vel.copy(attacker === a ? this.preA : this.preB);
+          this.demolish(attacker, attacker === a ? b : a);
+          continue;
+        }
+        if (cooled) {
+          if (ia.front && ia.closing > CAR_CAR.bumpMinClosing) {
+            applyBump(a, b, ia.closing);
+            this.events.push({ type: 'bump', attackerId: a.id, victimId: b.id });
+            this.bumpTicks.set(key, this.tick);
+          } else if (ib.front && ib.closing > CAR_CAR.bumpMinClosing) {
+            applyBump(b, a, ib.closing);
+            this.events.push({ type: 'bump', attackerId: b.id, victimId: a.id });
+            this.bumpTicks.set(key, this.tick);
+          }
+        }
+      }
+    }
+  }
+
+  private demolish(attacker: Car, victim: Car): void {
+    victim.demolished = true;
+    victim.respawnTimer = this.match.enabled ? this.match.config.respawnTime : 3;
+    victim.vel.set(0, 0, 0);
+    victim.angVel.set(0, 0, 0);
+    victim.boosting = false;
+    this.events.push({ type: 'demolition', attackerId: attacker.id, victimId: victim.id });
+    this.match.onDemolition(this, attacker, victim);
+  }
+
+  /** Reaparición tras una demolición: posición de saque propia, 33 de turbo. */
+  private respawn(car: Car): void {
+    const spots = KICKOFF_SPOTS;
+    const s = spots[this.rng.int(spots.length)];
+    const sx = car.team === 0 ? s.x : -s.x;
+    const sy = car.team === 0 ? s.y : -s.y;
+    car.place(sx, sy, Math.atan2(-sy, -sx));
+    this.events.push({ type: 'respawn', carId: car.id });
   }
 
   snapshot(): WorldSnapshot {
@@ -170,6 +299,7 @@ export class World {
           +c.prevBoostInput,
           +c.boosting,
           c.lastBallTouchTick,
+          +c.demolished,
         ],
         jumpDir: v(c.jumpDir),
         timers: [
@@ -180,15 +310,17 @@ export class World {
           c.boostTimer,
           c.flipForward,
           c.flipSide,
+          c.respawnTimer,
         ],
       })),
       pads: this.pads.map((p) => ({ active: p.active, timer: p.timer })),
+      match: this.match.serialize(),
+      bumps: Object.fromEntries(this.bumpTicks),
     };
   }
 
   restore(s: WorldSnapshot): void {
     this.tick = s.tick;
-    this.time = s.tick * PHYSICS.dt;
     this.rng.setState(s.rng);
     this.ball.pos.set(s.ball.pos[0], s.ball.pos[1], s.ball.pos[2]);
     this.ball.vel.set(s.ball.vel[0], s.ball.vel[1], s.ball.vel[2]);
@@ -207,9 +339,18 @@ export class World {
         .slice(0, 6)
         .map((x) => x === 1) as [boolean, boolean, boolean, boolean, boolean, boolean];
       c.lastBallTouchTick = cs.flags[6];
+      c.demolished = cs.flags[7] === 1;
       c.jumpDir.set(cs.jumpDir[0], cs.jumpDir[1], cs.jumpDir[2]);
-      [c.jumpTimer, c.groundLock, c.airTime, c.flipTimer, c.boostTimer, c.flipForward, c.flipSide] =
-        cs.timers as [number, number, number, number, number, number, number];
+      [
+        c.jumpTimer,
+        c.groundLock,
+        c.airTime,
+        c.flipTimer,
+        c.boostTimer,
+        c.flipForward,
+        c.flipSide,
+        c.respawnTimer,
+      ] = cs.timers as [number, number, number, number, number, number, number, number];
       c.prevPos.copy(c.pos);
       c.prevQuat.copy(c.quat);
       c.updateAxes();
@@ -218,5 +359,7 @@ export class World {
       this.pads[i].active = ps.active;
       this.pads[i].timer = ps.timer;
     });
+    this.match.restore(s.match);
+    this.bumpTicks = new Map(Object.entries(s.bumps).map(([k, v]) => [Number(k), v]));
   }
 }

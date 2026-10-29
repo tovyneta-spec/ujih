@@ -137,3 +137,132 @@ body {
   background: var(--bg);
   font-size: 18px;
 }
+.match {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+}
+.score {
+  position: absolute;
+  top: max(10px, env(safe-area-inset-top));
+  left: 50%;
+  transform: translateX(-50%);
+  display: grid;
+  grid-template-columns: 90px 120px 90px;
+  align-items: stretch;
+  text-align: center;
+  font-weight: 800;
+  text-shadow: 0 2px 6px rgba(0, 0, 0, 0.6);
+}
+.score .blue,
+.score .orange {
+  font-size: 44px;
+  padding: 2px 0;
+  background: rgba(47, 123, 255, 0.55);
+  border-radius: 10px 0 0 10px;
+}
+.score .orange {
+  background: rgba(255, 122, 31, 0.55);
+  border-radius: 0 10px 10px 0;
+}
+.score .clock {
+  font-size: 34px;
+  padding: 8px 0;
+  background: rgba(8, 14, 32, 0.7);
+  font-variant-numeric: tabular-nums;
+}
+.score .clock.low {
+  color: #ff6b6b;
+}
+.banner {
+  position: absolute;
+  top: 28%;
+  left: 0;
+  right: 0;
+  text-align: center;
+  text-shadow: 0 4px 16px rgba(0, 0, 0, 0.7);
+  animation: pop 0.35s ease-out;
+}
+.banner .big {
+  font-size: clamp(48px, 11vw, 120px);
+  font-weight: 900;
+  letter-spacing: 0.04em;
+}
+.banner .small {
+  font-size: clamp(16px, 2.4vw, 26px);
+  font-weight: 600;
+  margin-top: 4px;
+}
+.banner.blue .big {
+  color: #6ea4ff;
+}
+.banner.orange .big {
+  color: #ffa25c;
+}
+.banner.count .big {
+  font-size: clamp(64px, 14vw, 160px);
+}
+@keyframes pop {
+  from {
+    transform: scale(1.4);
+    opacity: 0;
+  }
+  to {
+    transform: scale(1);
+    opacity: 1;
+  }
+}
+.toasts {
+  position: absolute;
+  left: 50%;
+  top: 60%;
+  transform: translateX(-50%);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 6px;
+}
+.toast {
+  font-size: 22px;
+  font-weight: 800;
+  padding: 4px 14px;
+  background: rgba(8, 14, 32, 0.65);
+  border-radius: 8px;
+  animation: pop 0.25s ease-out;
+}
+.end {
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  transform: translate(-50%, -50%);
+  min-width: min(92vw, 560px);
+  padding: 20px 26px;
+  text-align: center;
+  background: rgba(8, 14, 32, 0.88);
+  border-radius: 16px;
+}
+.end h2 {
+  margin: 0;
+  font-size: 44px;
+}
+.end .final {
+  font-size: 36px;
+  font-weight: 800;
+  margin: 4px 0 12px;
+}
+.end table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 15px;
+}
+.end th,
+.end td {
+  padding: 4px 6px;
+}
+.end td:first-child {
+  text-align: left;
+}
+.end tr.mvp {
+  color: #ffd34d;
+  font-weight: 800;
+}

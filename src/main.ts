@@ -5,6 +5,7 @@ import { KeyboardInput } from './input/keyboard';
 import { GameRenderer } from './render/gameRenderer';
 import { World } from './sim';
 import { Hud } from './ui/hud';
+import { MatchHud } from './ui/matchHud';
 
 const root = document.getElementById('game-root') as HTMLElement;
 const canvas = document.getElementById('game-canvas') as HTMLCanvasElement;
@@ -33,15 +34,33 @@ function start(): void {
     return;
   }
 
-  // Práctica libre: un coche azul y la pelota en el centro.
+  // ?mode=match (1v1), match2 (2v2), match3 (3v3): partida con reglas contra coches inmóviles
+  // (los bots llegan en F3). Sin parámetro: práctica libre.
+  const mode = new URLSearchParams(location.search).get('mode') ?? 'practice';
+  const perTeam = mode === 'match3' ? 3 : mode === 'match2' ? 2 : 1;
+  const isMatch = mode.startsWith('match');
   const world = new World(Date.now() & 0xffff);
   const car = world.addCar(0, 'octane');
-  world.resetKickoff();
+  const names = ['Tú'];
+  if (isMatch) {
+    for (let i = 1; i < perTeam; i++) {
+      world.addCar(0, 'octane');
+      names.push(`Azul ${i + 1}`);
+    }
+    for (let i = 0; i < perTeam; i++) {
+      world.addCar(1, 'octane');
+      names.push(`Naranja ${i + 1}`);
+    }
+    world.startMatch({ duration: 300 });
+  } else world.resetKickoff();
 
   const renderer = new GameRenderer(canvas);
   renderer.setWorld(world, car.id);
   const keyboard = new KeyboardInput(root);
   const hud = new Hud(hudRoot);
+  const matchHud = new MatchHud(hudRoot);
+  matchHud.names = names;
+  matchHud.setVisible(isMatch);
   root.focus({ preventScroll: true });
 
   const resize = (): void => {
@@ -58,7 +77,10 @@ function start(): void {
       world.setInput(car.id, keyboard.poll(dt));
       world.step();
       for (const e of world.drainEvents()) {
-        if (e.type === 'goal' && goalTimer <= 0) goalTimer = 2.5;
+        if (isMatch) {
+          matchHud.onEvent(e, world);
+          if (e.type === 'kickoffReset') renderer.rig.reset();
+        } else if (e.type === 'goal' && goalTimer <= 0) goalTimer = 2.5;
       }
       if (goalTimer > 0) {
         goalTimer -= dt;
@@ -72,8 +94,12 @@ function start(): void {
       if (keyboard.consumePress('ballCam')) renderer.rig.ballCam = !renderer.rig.ballCam;
       renderer.rig.lookBack = keyboard.isDown('lookBack');
       if (keyboard.consumePress('reset')) {
-        world.resetKickoff();
-        renderer.rig.reset();
+        if (!isMatch) {
+          world.resetKickoff();
+          renderer.rig.reset();
+        } else if (world.match.phase === 'ended') {
+          world.startMatch({ duration: 300 }); // revancha
+        }
       }
       if (keyboard.consumePress('debug')) {
         debugEl.hidden = !debugEl.hidden;
@@ -81,6 +107,7 @@ function start(): void {
       }
       renderer.render(alpha, frameDt);
       hud.update(car);
+      if (isMatch) matchHud.update(world.match, frameDt * 1000);
       if (!debugEl.hidden) {
         const s = loop.stats;
         debugEl.textContent = [
