@@ -1,6 +1,7 @@
-// Entrada de teclado: ejes digitales suavizados con rampa, captura sólo con el juego enfocado.
+// Entrada de teclado y ratón: ejes digitales suavizados con rampa, captura sólo con el juego enfocado.
+// Esquema «ratón»: el ratón gira el coche, clic izquierdo = turbo, clic derecho = salto.
 import { DEFAULT_KEYS, KEYBOARD_RAMP } from '../config';
-import type { Action } from '../config';
+import type { Action, ControlScheme } from '../config';
 import { neutralInput } from '../sim';
 import type { CarInput } from '../sim';
 
@@ -12,6 +13,12 @@ export class KeyboardInput {
   /** Si es false se ignora el teclado (menús abiertos): no bloquea teclas del navegador. */
   enabled = true;
   private steerAxis = 0;
+  /** Esquema activo y estado del ratón (eje horizontal normalizado −1..1 y botones). */
+  scheme: ControlScheme = 'keyboard';
+  mouseSensitivity = 1;
+  private mouseX = 0;
+  private mouseLeft = false;
+  private mouseRight = false;
   private readonly out: CarInput = neutralInput();
   private keyToAction = new Map<string, Action>();
 
@@ -25,6 +32,13 @@ export class KeyboardInput {
     root.addEventListener('focus', () => this.capture());
     root.addEventListener('blur', () => this.release());
     window.addEventListener('blur', () => this.release());
+    root.addEventListener('pointerdown', (e) => this.onMouseButton(e, true));
+    root.addEventListener('contextmenu', (e) => {
+      if (this.scheme === 'mouse' && this.enabled) e.preventDefault();
+    });
+    window.addEventListener('pointerup', (e) => this.onMouseButton(e, false));
+    window.addEventListener('pointercancel', () => this.releaseMouse());
+    window.addEventListener('pointermove', (e) => this.onMouseMove(e));
     window.addEventListener('keydown', (e) => this.onKey(e, true));
     window.addEventListener('keyup', (e) => this.onKey(e, false));
   }
@@ -49,6 +63,29 @@ export class KeyboardInput {
   private release(): void {
     this.captured = false;
     this.down.clear();
+    this.releaseMouse();
+  }
+
+  private releaseMouse(): void {
+    this.mouseLeft = false;
+    this.mouseRight = false;
+  }
+
+  private onMouseButton(e: PointerEvent, isDown: boolean): void {
+    if (this.scheme !== 'mouse') return;
+    if (isDown && !this.enabled) return;
+    if (e.button === 0) this.mouseLeft = isDown;
+    else if (e.button === 2) this.mouseRight = isDown;
+    if (isDown && this.enabled) e.preventDefault();
+  }
+
+  private onMouseMove(e: PointerEvent): void {
+    if (this.scheme !== 'mouse') return;
+    const r = this.root.getBoundingClientRect();
+    if (r.width <= 0) return;
+    // Posición respecto al centro de la pantalla: media anchura del centro = giro completo ≈ 45 %.
+    const nx = ((e.clientX - (r.left + r.width / 2)) / (r.width / 2)) * 2.2 * this.mouseSensitivity;
+    this.mouseX = Math.abs(nx) < 0.04 ? 0 : Math.max(-1, Math.min(1, nx));
   }
 
   private onKey(e: KeyboardEvent, isDown: boolean): void {
@@ -90,11 +127,14 @@ export class KeyboardInput {
   /** Lee el estado justo antes de cada paso de física. */
   poll(dt: number): CarInput {
     const t = (this.isDown('throttleUp') ? 1 : 0) - (this.isDown('throttleDown') ? 1 : 0);
-    const s = (this.isDown('steerRight') ? 1 : 0) - (this.isDown('steerLeft') ? 1 : 0);
+    const mouse = this.scheme === 'mouse';
+    const s = mouse
+      ? this.mouseX
+      : (this.isDown('steerRight') ? 1 : 0) - (this.isDown('steerLeft') ? 1 : 0);
     const r = (this.isDown('rollRight') ? 1 : 0) - (this.isDown('rollLeft') ? 1 : 0);
     // La dirección en suelo se suaviza con rampa; el gas y los ejes aéreos (y por tanto la
     // dirección del flip) son digitales directos para no retrasar la respuesta.
-    this.steerAxis = this.ramp(this.steerAxis, s, dt);
+    this.steerAxis = mouse ? s : this.ramp(this.steerAxis, s, dt);
 
     const o = this.out;
     const handbrake = this.isDown('handbrake');
@@ -104,8 +144,8 @@ export class KeyboardInput {
     o.pitch = -t;
     o.yaw = handbrake ? 0 : s;
     o.roll = Math.max(-1, Math.min(1, r + (handbrake ? s : 0)));
-    o.jump = this.isDown('jump');
-    o.boost = this.isDown('boost');
+    o.jump = mouse ? this.mouseRight : this.isDown('jump');
+    o.boost = mouse ? this.mouseLeft : this.isDown('boost');
     o.handbrake = handbrake;
     return o;
   }

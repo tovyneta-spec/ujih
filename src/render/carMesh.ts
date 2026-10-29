@@ -1,4 +1,4 @@
-// Modelos procedurales low-poly de las 6 carrocerías, con ruedas, calcomanías, antena y estela
+// Modelos procedurales low-poly de las 9 carrocerías, con ruedas, calcomanías, antena y estela
 // personalizables. Ejes locales: x adelante, y izquierda, z arriba; el origen es el centro de la hitbox.
 import {
   AdditiveBlending,
@@ -269,6 +269,98 @@ const SHAPES: Record<CarBodyId, BodyShape> = {
       c.add(spare);
     },
   },
+  // Cuña de superdeportivo: morro afilado, cabina retrasada y gran alerón.
+  viper: {
+    lower: [
+      [0, 0],
+      [1, 0],
+      [1, 0.1],
+      [0.82, 0.3],
+      [0.52, 0.42],
+      [0.12, 0.5],
+      [0, 0.46],
+    ],
+    cabin: [
+      [0.4, 0.5],
+      [0.55, 0.9],
+      [0.68, 0.9],
+      [0.8, 0.5],
+    ],
+    lowerWidth: 1,
+    cabinWidth: 0.6,
+    extras: (c) => {
+      // Alerón elevado sobre dos pilares y splitter plano.
+      box(c, c.L * 0.14, c.W * 1.02, 3, c.X(0.02), 0, c.Z(1.0), c.dark);
+      for (const s of [-1, 1]) box(c, 4, 3, c.H * 0.5, c.X(0.06), s * c.W * 0.3, c.Z(0.74), c.trim);
+      box(c, c.L * 0.16, c.W * 1.0, 2, c.X(1.02), 0, c.Z(0.04), c.dark);
+      // Entradas de aire laterales.
+      for (const s of [-1, 1])
+        box(c, c.L * 0.14, 3, c.H * 0.2, c.X(0.52), s * (c.W * 0.5 + 1), c.Z(0.3), c.dark);
+    },
+  },
+  // Camioneta alta: cabina cuadrada, caja de carga y barra de luces.
+  titan: {
+    lower: [
+      [0, 0.1],
+      [1, 0.1],
+      [1, 0.5],
+      [0.96, 0.58],
+      [0.5, 0.6],
+      [0, 0.6],
+    ],
+    cabin: [
+      [0.5, 0.6],
+      [0.56, 1],
+      [0.88, 1],
+      [0.94, 0.6],
+    ],
+    lowerWidth: 0.96,
+    cabinWidth: 0.86,
+    extras: (c) => {
+      // Defensa delantera, barra de luces y baca; la caja trasera queda rehundida.
+      box(c, 8, c.W * 0.98, c.H * 0.16, c.X(1.03), 0, c.Z(0.24), c.dark);
+      box(c, 4, c.W * 0.6, 4, c.X(0.72), 0, c.zt + 3, c.trim);
+      for (const s of [-1, 1]) {
+        box(c, c.L * 0.44, 3, c.H * 0.1, c.X(0.24), s * c.W * 0.46, c.Z(0.66), c.dark);
+        box(c, 6, 6, 6, c.X(0.9), s * c.W * 0.34, c.zt + 4, c.trim);
+      }
+    },
+  },
+  // Microcoche redondeado con cúpula acristalada casi esférica.
+  bubble: {
+    lower: [
+      [0.04, 0.05],
+      [0.96, 0.05],
+      [1, 0.2],
+      [0.96, 0.34],
+      [0.7, 0.4],
+      [0.3, 0.4],
+      [0.04, 0.34],
+      [0, 0.2],
+    ],
+    cabin: [
+      [0.08, 0.4],
+      [0.14, 0.78],
+      [0.3, 0.98],
+      [0.55, 1],
+      [0.76, 0.9],
+      [0.9, 0.64],
+      [0.94, 0.4],
+    ],
+    lowerWidth: 0.96,
+    cabinWidth: 0.92,
+    extras: (c) => {
+      // Faros redondos y paragolpes mullido.
+      for (const s of [-1, 1]) {
+        const lamp = new Mesh(new CylinderGeometry(5, 5, 3, 12), c.trim);
+        lamp.rotation.z = Math.PI / 2;
+        lamp.position.set(c.X(1.0), s * c.W * 0.3, c.Z(0.26));
+        c.add(lamp);
+      }
+      box(c, 5, c.W * 0.9, c.H * 0.14, c.X(1.02), 0, c.Z(0.08), c.dark);
+      box(c, 5, c.W * 0.9, c.H * 0.14, c.X(-0.02), 0, c.Z(0.08), c.dark);
+    },
+  },
 };
 
 /** Acumula mallas estáticas y las fusiona por material. */
@@ -450,6 +542,15 @@ export function buildCarMesh(spec: CarBodySpec, look: CarLook, quality: Quality)
     color: look.team.clone().multiplyScalar(2.4),
   });
   const roofX = shape.cabin.length >= 3 ? X(shape.cabin[shape.cabin.length - 2][0]) : X(0.6);
+  // Faros delanteros y piloto trasero con el color del equipo (mismo material: sin llamadas extra).
+  for (const s of [-1, 1]) {
+    const head = new Mesh(new BoxGeometry(3, W * 0.2, Math.max(3, H * 0.09)), teamEmissive);
+    head.position.set(X(1) + 0.5, s * W * 0.3 * shape.lowerWidth, Z(0.22));
+    c.add(head);
+  }
+  const tail = new Mesh(new BoxGeometry(2, W * shape.lowerWidth * 0.7, 2.5), teamEmissive);
+  tail.position.set(X(0) - 0.5, 0, Z(0.26));
+  c.add(tail);
   const teamBar = new Mesh(new BoxGeometry(3, W * shape.cabinWidth * 0.8, 2), teamEmissive);
   teamBar.position.set(roofX + 4, 0, Z(0.97));
   c.add(teamBar);

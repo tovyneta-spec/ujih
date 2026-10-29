@@ -4,7 +4,7 @@ import { DEFAULT_MATCH_CONFIG } from './match';
 import type { DemolitionMode, MatchConfig } from './match';
 import type { BotLevel } from './bots';
 
-export type Format = '1v1' | '2v2' | '3v3';
+export type Format = '1v1' | '2v2' | '3v3' | '4v4';
 export type BoostMode = 'normal' | 'none' | 'unlimited' | 'recharge';
 export type GameSpeed = 'normal' | 'slow' | 'fast';
 export type Level4 = 'default' | 'low' | 'high' | 'super';

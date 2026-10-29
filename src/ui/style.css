@@ -795,3 +795,25 @@ button {
 .netbanner[hidden] {
   display: none;
 }
+
+/* Ajustes */
+.menu .tabs {
+  margin-bottom: 10px;
+}
+.menu .settings-body {
+  max-height: 52vh;
+  overflow-y: auto;
+  padding-right: 6px;
+}
+.menu .keys .row {
+  align-items: center;
+}
+.menu .keybtn {
+  min-width: 130px;
+}
+.menu .field.check {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin: 10px 0;
+}

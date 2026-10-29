@@ -1,12 +1,20 @@
 // Controlador del juego: estados (menú / jugando / pausa), partidas, repeticiones y bucle principal.
-import { BALL, BOT_PROFILES, PHYSICS, QUICK_CHAT, resolveMutators } from './config';
+import {
+  BALL,
+  BOT_PROFILES,
+  PHYSICS,
+  QUICK_CHAT,
+  effectiveBindings,
+  resolveMutators,
+} from './config';
 import type { Action, BotLevel, GarageSettings, GoalExplosion, Theme } from './config';
 import { AudioEngine } from './audio';
 import type { Listener } from './audio';
 import { botBody, botLook, playerLook } from './render/looks';
 import { detectProfile } from './render/gpu';
 import { PerformanceGovernor } from './render/quality';
-import { loadAudio, loadGarage } from './storage';
+import { loadAudio, loadGarage, loadSettings, saveSettings } from './storage';
+import type { PlayerSettings } from './storage';
 import type { ResolvedMutators } from './config';
 import { GameLoop } from './core/loop';
 import { KeyboardInput } from './input/keyboard';
@@ -45,7 +53,7 @@ export class Game {
   private extras: HudExtras;
   private menus: Menus;
   private loop: GameLoop;
-  private recorder = new Recorder(PHYSICS.tickRate, 60, 12, 6);
+  private recorder = new Recorder(PHYSICS.tickRate, 60, 12, 8);
   private player: ReplayPlayer;
   private cam = new CinematicCam();
 
@@ -65,6 +73,7 @@ export class Game {
   private lastChat = -10;
   private audio = new AudioEngine(loadAudio());
   private garage: GarageSettings = loadGarage();
+  private settings: PlayerSettings = loadSettings();
   // Online: cliente de red, réplica con predicción y lote de entradas pendientes de envío.
   private net: NetClient | null = null;
   private online: OnlineMatch | null = null;
@@ -92,6 +101,7 @@ export class Game {
     this.hud = new Hud(hudRoot);
     this.matchHud = new MatchHud(hudRoot, (a) => this.onEndAction(a));
     this.extras = new HudExtras(hudRoot);
+    this.applySettings(this.settings, false);
     this.menus = new Menus(root, {
       play: (s) => this.startMatch(s),
       practice: () => this.startPractice(),
@@ -106,6 +116,7 @@ export class Game {
       garageExplosion: (style) => this.renderer.previewExplosion(style),
       garageExit: () => this.exitGarage(),
       audioChange: (a) => this.audio.setSettings(a),
+      settingsChange: (s) => this.applySettings(s, true),
       ui: (k) => this.audio.ui(k),
       online: {
         connect: (url) => this.netConnect(url),
@@ -159,6 +170,18 @@ export class Game {
     } else this.toMenu();
     this.loop.start();
     (window as unknown as { __game: unknown }).__game = this;
+  }
+
+  /** Aplica (y opcionalmente guarda) los ajustes de cámara y controles. */
+  private applySettings(s: PlayerSettings, save: boolean): void {
+    this.settings = s;
+    if (save) saveSettings(s);
+    Object.assign(this.renderer.rig.settings, s.camera);
+    const k = this.keyboard;
+    k.scheme = s.controls.scheme;
+    k.mouseSensitivity = s.controls.mouseSensitivity;
+    k.setBindings(effectiveBindings(s.controls));
+    this.hud.setScheme(s.controls.scheme === 'mouse');
   }
 
   // ------------------------------------------------------------------ estados
@@ -615,6 +638,7 @@ export class Game {
       this.goalTimer -= dt;
       if (this.goalTimer <= 0) {
         world.ball.reset(0, 0);
+        this.renderer.ballHidden = false;
         this.renderer.rig.reset();
       }
     }
@@ -658,6 +682,7 @@ export class Game {
       if (k.consumePress('reset')) {
         if (!this.isMatch) {
           world.resetKickoff();
+          this.renderer.ballHidden = false;
           this.renderer.rig.reset();
         } else if (world.match.phase === 'ended') this.rematch();
       }

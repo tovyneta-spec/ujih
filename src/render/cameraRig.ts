@@ -25,6 +25,9 @@ export class CameraRig {
   private smoothPos = new Vec3(0, -1500, 400);
   private smoothTarget = new Vec3();
   private fovKick = 0;
+  /** Amplitud de la sacudida (uu); decae sola. Se dispara con goles y demoliciones. */
+  private shakeAmp = 0;
+  private shakeT = 0;
   private initialised = false;
   private wantPos = new Vec3();
   private wantTarget = new Vec3();
@@ -33,6 +36,12 @@ export class CameraRig {
 
   reset(): void {
     this.initialised = false;
+    this.shakeAmp = 0;
+  }
+
+  /** Sacudida puntual de la cámara (sólo si está activada en los ajustes). */
+  kick(amount: number): void {
+    if (this.settings.shake) this.shakeAmp = Math.max(this.shakeAmp, amount);
   }
 
   /**
@@ -120,6 +129,14 @@ export class CameraRig {
     }
 
     this.pose.position.copy(this.smoothPos);
+    if (this.shakeAmp > 0.05 && this.settings.shake) {
+      this.shakeT += dt * 55;
+      const a = this.shakeAmp;
+      this.pose.position.x += Math.sin(this.shakeT * 1.3) * a;
+      this.pose.position.y += Math.sin(this.shakeT * 1.7 + 1) * a;
+      this.pose.position.z += Math.sin(this.shakeT * 2.1 + 2) * a * 0.6;
+      this.shakeAmp *= Math.exp(-dt * 5);
+    } else this.shakeAmp = 0;
     this.pose.target.copy(this.smoothTarget);
     this.fovKick += ((boosting ? 6 : 0) - this.fovKick) * Math.min(1, dt * 6);
     this.pose.fov = s.fov + this.fovKick;

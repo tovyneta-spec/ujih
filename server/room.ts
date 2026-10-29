@@ -59,7 +59,7 @@ export class Player {
   }
 }
 
-export const FORMATS: Record<Format, number> = { '1v1': 1, '2v2': 2, '3v3': 3 };
+export const FORMATS: Record<Format, number> = { '1v1': 1, '2v2': 2, '3v3': 3, '4v4': 4 };
 export const DURATIONS = [3, 5, 10, 20] as const;
 
 /** Segundos de espera antes de empezar una sala de partida rápida (y al llenarse). */

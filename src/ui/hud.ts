@@ -40,6 +40,17 @@ export class Hud {
     setTimeout(() => this.hint.classList.add('fade'), 12000);
   }
 
+  /** Texto de ayuda de controles según el esquema activo. */
+  setScheme(mouse: boolean): void {
+    this.hint.innerHTML = mouse
+      ? `<b>W/S</b> acelerar / frenar · <b>Ratón</b> girar · <b>Clic izq.</b> turbo ·
+        <b>Clic der.</b> saltar (otra vez + dirección = flip) · <b>Ctrl/Z</b> derrape · <b>Q/E</b> giro aéreo ·
+        <b>C</b> cámara de pelota · <b>V</b> mirar atrás · <b>R</b> reiniciar · <b>F3</b> depuración`
+      : `<b>WASD</b> conducir · <b>Espacio</b> saltar (otra vez + dirección = flip) · <b>Shift</b> turbo ·
+        <b>Ctrl/Z</b> derrape · <b>Q/E</b> giro aéreo · <b>C</b> cámara de pelota · <b>V</b> mirar atrás ·
+        <b>R</b> reiniciar · <b>F3</b> depuración`;
+  }
+
   /** Indicador de ping online (null lo oculta). */
   setPing(ms: number | null): void {
     const el = this.root.querySelector('.ping') as HTMLElement;

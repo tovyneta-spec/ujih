@@ -376,16 +376,16 @@ export function buildArena(theme: ThemeSpec, q: Quality): ArenaVisual {
         GZ / 60,
       ),
       placed(
-        new PlaneGeometry(GD, GZ),
-        mat4(-GX, s * (HY + GD / 2), GZ / 2, Math.PI / 2, 0, Math.PI / 2),
-        GD / 60,
+        new PlaneGeometry(GZ, GD),
+        mat4(-GX, s * (HY + GD / 2), GZ / 2, 0, Math.PI / 2, 0),
         GZ / 60,
+        GD / 60,
       ),
       placed(
-        new PlaneGeometry(GD, GZ),
-        mat4(GX, s * (HY + GD / 2), GZ / 2, Math.PI / 2, 0, Math.PI / 2),
-        GD / 60,
+        new PlaneGeometry(GZ, GD),
+        mat4(GX, s * (HY + GD / 2), GZ / 2, 0, Math.PI / 2, 0),
         GZ / 60,
+        GD / 60,
       ),
       placed(new PlaneGeometry(GX * 2, GD), mat4(0, s * (HY + GD / 2), GZ), (GX * 2) / 60, GD / 60),
     ];
@@ -399,6 +399,37 @@ export function buildArena(theme: ThemeSpec, q: Quality): ArenaVisual {
           opacity: 0.75,
           side: DoubleSide,
           depthWrite: false,
+        }),
+      ),
+    );
+
+    // Carcasa opaca detrás de la red: cierra el fondo, los laterales y el techo de la portería
+    // para que no se vea el exterior del estadio a través de la malla.
+    const o = 8;
+    const ps = ARENA.goal.pocketStart;
+    const sideLen = HY + GD - ps + o;
+    const sideY = s * (ps - o + sideLen / 2);
+    const shell = [
+      placed(
+        new PlaneGeometry(GX * 2 + 2 * o, GZ + o),
+        mat4(0, s * (HY + GD + o), (GZ + o) / 2, Math.PI / 2),
+      ),
+      placed(
+        new PlaneGeometry(GZ + o, sideLen),
+        mat4(-GX - o, sideY, (GZ + o) / 2, 0, Math.PI / 2, 0),
+      ),
+      placed(
+        new PlaneGeometry(GZ + o, sideLen),
+        mat4(GX + o, sideY, (GZ + o) / 2, 0, Math.PI / 2, 0),
+      ),
+      placed(new PlaneGeometry(GX * 2 + 2 * o, sideLen), mat4(0, sideY, GZ + o)),
+    ];
+    group.add(
+      new Mesh(
+        mergeGeometries(shell) as BufferGeometry,
+        new MeshBasicMaterial({
+          color: new Color(teamCol).multiplyScalar(0.22),
+          side: DoubleSide,
         }),
       ),
     );

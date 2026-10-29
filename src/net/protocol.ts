@@ -17,7 +17,7 @@ export const MAX_QUEUE = 30;
 /** Tiempo (ms) que se reserva el coche de un jugador desconectado antes de ceder definitivamente a un bot. */
 export const RECONNECT_WINDOW_MS = 60_000;
 
-export type Format = '1v1' | '2v2' | '3v3';
+export type Format = '1v1' | '2v2' | '3v3' | '4v4';
 
 export interface PlayerInfo {
   id: number;

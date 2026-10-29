@@ -1,6 +1,7 @@
 // Carrocerías: hitbox (largo × ancho × alto, uu) y desplazamiento del centro visual respecto a la hitbox.
 
-export type CarBodyId = 'octane' | 'dominus' | 'plank' | 'breakout' | 'hybrid' | 'merc';
+export type CarBodyId =
+  'octane' | 'dominus' | 'plank' | 'breakout' | 'hybrid' | 'merc' | 'viper' | 'titan' | 'bubble';
 
 export interface CarBodySpec {
   id: CarBodyId;
@@ -30,6 +31,12 @@ export const CAR_BODIES: Record<CarBodyId, CarBodySpec> = {
   breakout: spec('breakout', 'Estallido', 131.5, 80.5, 30.3, 12.5, 0.32, 0.6, 0.34, 14, 14),
   hybrid: spec('hybrid', 'Híbrido', 127, 82.2, 34.2, 9.0, 0.3, 0.68, 0.4, 14, 14),
   merc: spec('merc', 'Mercenario', 120.7, 76.7, 41.7, 11.5, 0.2, 0.9, 0.5, 15, 15),
+  // Deportivo bajísimo en cuña, largo y ancho.
+  viper: spec('viper', 'Víbora', 136, 90, 24, 8, 0.5, 0.78, 0.55, 12, 17),
+  // Camioneta alta y corta con ruedas enormes.
+  titan: spec('titan', 'Titán', 104, 94, 56, 10, 0.12, 0.62, 0.6, 22, 22),
+  // Microcoche con cabina de burbuja.
+  bubble: spec('bubble', 'Burbuja', 96, 80, 46, 9, 0.1, 0.9, 0.62, 15, 14),
 };
 
 function spec(

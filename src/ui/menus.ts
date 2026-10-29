@@ -3,6 +3,13 @@ import {
   ANTENNAS,
   BODY_IDS,
   BOT_PROFILES,
+  CAMERA_LIMITS,
+  DEFAULT_CAMERA,
+  DEFAULT_CONTROLS,
+  DEFAULT_KEYS,
+  REMAPPABLE,
+  SCHEMES,
+  keyLabel,
   CAR_BODIES,
   DECALS,
   DEFAULT_GARAGE,
@@ -12,9 +19,17 @@ import {
   TRAILS,
   WHEEL_STYLES,
 } from '../config';
-import type { BotLevel, GarageSettings, GoalExplosion, Mutators } from '../config';
-import { loadAudio, loadGarage, sanitizeGarage, saveGarage } from '../storage';
-import type { AudioSettings } from '../storage';
+import type {
+  Action,
+  BotLevel,
+  CameraSettings,
+  ControlScheme,
+  GarageSettings,
+  GoalExplosion,
+  Mutators,
+} from '../config';
+import { loadAudio, loadGarage, loadSettings, sanitizeGarage, saveGarage } from '../storage';
+import type { AudioSettings, PlayerSettings } from '../storage';
 import { defaultServerUrl } from '../net/client';
 import type { Format, LobbyInfo } from '../net/protocol';
 import type { GameSetup } from './urlConfig';
@@ -31,6 +46,8 @@ export interface MenuCallbacks {
   garageExplosion(style: GoalExplosion): void;
   garageExit(): void;
   audioChange(a: AudioSettings): void;
+  /** Ajustes de cámara y controles modificados (ya validados; el juego los guarda y aplica). */
+  settingsChange(s: PlayerSettings): void;
   /** Sonidos de interfaz. */
   ui(kind: 'click' | 'hover' | 'back'): void;
   online: OnlineMenuApi;
@@ -50,7 +67,16 @@ export interface OnlineMenuApi {
 }
 
 type Screen =
-  'main' | 'quick' | 'custom' | 'credits' | 'pause' | 'garage' | 'audio' | 'online' | 'lobby';
+  | 'main'
+  | 'quick'
+  | 'custom'
+  | 'credits'
+  | 'pause'
+  | 'garage'
+  | 'audio'
+  | 'online'
+  | 'lobby'
+  | 'settings';
 
 interface Option {
   value: string | number | boolean;
@@ -63,7 +89,7 @@ interface Field {
 }
 
 const FIELDS: Field[] = [
-  { key: 'format', label: 'Formato', options: opts(['1v1', '2v2', '3v3']) },
+  { key: 'format', label: 'Formato', options: opts(['1v1', '2v2', '3v3', '4v4']) },
   {
     key: 'botLevel',
     label: 'Nivel de bots',
@@ -261,6 +287,11 @@ function saveServerUrl(url: string): void {
   }
 }
 
+/** Primera tecla por defecto de cada acción (la que muestra la pantalla de ajustes). */
+const DEFAULT_KEYS_FIRST: Record<string, string> = Object.fromEntries(
+  Object.entries(DEFAULT_KEYS).map(([a, k]) => [a, k[0] ?? '']),
+);
+
 export class Menus {
   private root: HTMLElement;
   private screen: Screen | null = null;
@@ -274,6 +305,10 @@ export class Menus {
   private serverUrl = loadServerUrl();
   private lobby: LobbyInfo | null = null;
   private myId = -1;
+  private settings: PlayerSettings = loadSettings();
+  private settingsTab: 'camera' | 'controls' = 'camera';
+  private settingsBack: 'main' | 'pause' = 'main';
+  private rebinding: Action | null = null;
 
   constructor(
     parent: HTMLElement,
@@ -283,6 +318,8 @@ export class Menus {
     this.root.className = 'menu';
     this.root.hidden = true;
     parent.appendChild(this.root);
+    // Captura de la nueva tecla al reasignar: va en fase de captura para adelantarse a todo lo demás.
+    window.addEventListener('keydown', (e) => this.onRebindKey(e), true);
     window.addEventListener('keydown', (e) => this.onKey(e));
     // Sonidos de interfaz por delegación.
     this.root.addEventListener('click', (e) => {
@@ -324,6 +361,7 @@ export class Menus {
       e.preventDefault();
       if (this.screen === 'pause') this.cb.resume();
       else if (this.screen === 'garage') this.leaveGarage();
+      else if (this.screen === 'settings') this.closeSettings();
       else if (this.screen === 'lobby') this.cb.online.leave();
       else if (this.screen === 'online') {
         this.cb.online.disconnect();
@@ -354,6 +392,8 @@ export class Menus {
         return this.renderOnline();
       case 'lobby':
         return this.renderLobby();
+      case 'settings':
+        return this.renderSettings();
     }
   }
 
@@ -377,6 +417,7 @@ export class Menus {
         <button class="btn" data-go="practice">Práctica libre</button>
         <button class="btn" data-go="online">Jugar online</button>
         <button class="btn" data-go="garage">Garaje</button>
+        <button class="btn" data-go="settings">Ajustes</button>
         <button class="btn" data-go="audio">Audio</button>
         <button class="btn" data-go="credits">Créditos</button>
       </div>
@@ -389,6 +430,7 @@ export class Menus {
       this.cb.garageEnter(this.garage);
     });
     this.on('[data-go=audio]', () => this.open('audio'));
+    this.on('[data-go=settings]', () => this.openSettings('main'));
     this.on('[data-go=online]', () => this.open('online'));
     this.on('[data-go=practice]', () => this.cb.practice());
   }
@@ -627,6 +669,172 @@ export class Menus {
     this.on('[data-go=back]', () => this.open('main'));
   }
 
+  // ---------------------------------------------------------------- ajustes
+
+  private openSettings(back: 'main' | 'pause'): void {
+    this.settingsBack = back;
+    this.rebinding = null;
+    this.open('settings');
+  }
+
+  private closeSettings(): void {
+    this.rebinding = null;
+    this.open(this.settingsBack);
+  }
+
+  private commitSettings(): void {
+    this.cb.settingsChange(this.settings);
+  }
+
+  private onRebindKey(e: KeyboardEvent): void {
+    if (!this.visible || this.screen !== 'settings' || !this.rebinding) return;
+    e.preventDefault();
+    e.stopImmediatePropagation();
+    const action = this.rebinding;
+    this.rebinding = null;
+    if (e.code !== 'Escape') {
+      const keys = { ...this.settings.controls.keys };
+      // Una tecla sólo puede pertenecer a una acción: se libera de la que la tuviera.
+      const eff = this.effectiveKeys();
+      for (const [a, code] of Object.entries(eff) as [Action, string][]) {
+        if (code === e.code && a !== action) keys[a] = '';
+      }
+      keys[action] = e.code;
+      this.settings = {
+        ...this.settings,
+        controls: { ...this.settings.controls, keys },
+      };
+      this.commitSettings();
+    }
+    this.renderSettings();
+  }
+
+  /** Tecla efectiva (una por acción) del esquema de teclado. */
+  private effectiveKeys(): Record<string, string> {
+    const out: Record<string, string> = {};
+    const custom = this.settings.controls.keys;
+    for (const { action } of REMAPPABLE) {
+      const c = custom[action];
+      out[action] = c !== undefined ? c : (DEFAULT_KEYS_FIRST[action] ?? '');
+    }
+    return out;
+  }
+
+  private renderSettings(): void {
+    const tab = this.settingsTab;
+    const cam = this.settings.camera;
+    const ctl = this.settings.controls;
+    const fmt = (key: keyof typeof CAMERA_LIMITS, v: number): string =>
+      CAMERA_LIMITS[key].step < 1 ? v.toFixed(CAMERA_LIMITS[key].step < 0.1 ? 2 : 1) : String(v);
+    const camSlider = (key: keyof typeof CAMERA_LIMITS): string => {
+      const l = CAMERA_LIMITS[key];
+      return `<label class="field slider"><span>${l.label} <b data-camval="${key}">${fmt(key, cam[key])}</b></span>
+        <input type="range" min="${l.min}" max="${l.max}" step="${l.step}" value="${cam[key]}" data-cam="${key}" /></label>`;
+    };
+    const cameraTab = `
+      ${(Object.keys(CAMERA_LIMITS) as (keyof typeof CAMERA_LIMITS)[]).map(camSlider).join('')}
+      <label class="field check"><input type="checkbox" data-camshake ${cam.shake ? 'checked' : ''} />
+        <span>Sacudida de cámara (goles y demoliciones)</span></label>
+      <div class="buttons"><button class="btn" data-go="camreset">Restaurar cámara</button></div>`;
+
+    const eff = this.effectiveKeys();
+    const keyRows = REMAPPABLE.map(
+      ({ action, label }) => `<div class="row"><span>${label}</span>
+        <button type="button" class="seg keybtn ${this.rebinding === action ? 'on' : ''}" data-key="${action}">${
+          this.rebinding === action ? 'Pulsa una tecla…' : eff[action] ? keyLabel(eff[action]) : '—'
+        }</button></div>`,
+    ).join('');
+    const schemes = (Object.keys(SCHEMES) as ControlScheme[])
+      .map(
+        (k) =>
+          `<button type="button" class="seg ${ctl.scheme === k ? 'on' : ''}" data-scheme="${k}">${SCHEMES[k].name}</button>`,
+      )
+      .join('');
+    const controlsTab = `
+      <div class="row"><span>Esquema</span><div class="segs">${schemes}</div></div>
+      <p class="note">${SCHEMES[ctl.scheme].description}</p>
+      ${
+        ctl.scheme === 'mouse'
+          ? `<label class="field slider"><span>Sensibilidad del ratón <b data-mousesens>${ctl.mouseSensitivity.toFixed(1)}</b></span>
+              <input type="range" min="0.5" max="2" step="0.1" value="${ctl.mouseSensitivity}" data-sens /></label>
+             <p class="note">Mueve el ratón a la izquierda o la derecha del centro de la pantalla para girar.</p>`
+          : `<div class="keys">${keyRows}</div>
+             <div class="buttons"><button class="btn" data-go="keyreset">Restaurar teclas</button></div>`
+      }`;
+    this.render(`
+      <h2>Ajustes</h2>
+      <div class="segs tabs">
+        <button type="button" class="seg ${tab === 'camera' ? 'on' : ''}" data-tab="camera">Cámara</button>
+        <button type="button" class="seg ${tab === 'controls' ? 'on' : ''}" data-tab="controls">Controles</button>
+      </div>
+      <div class="settings-body">${tab === 'camera' ? cameraTab : controlsTab}</div>
+      <div class="buttons"><button class="btn primary" data-go="back">Volver</button></div>`);
+
+    this.root.querySelectorAll<HTMLButtonElement>('[data-tab]').forEach((b) =>
+      b.addEventListener('click', () => {
+        this.settingsTab = b.dataset.tab as 'camera' | 'controls';
+        this.rebinding = null;
+        this.renderSettings();
+      }),
+    );
+    this.on('[data-go=back]', () => this.closeSettings());
+    this.root.querySelectorAll<HTMLInputElement>('input[data-cam]').forEach((i) =>
+      i.addEventListener('input', () => {
+        const key = i.dataset.cam as keyof typeof CAMERA_LIMITS;
+        const camera: CameraSettings = { ...this.settings.camera, [key]: Number(i.value) };
+        this.settings = { ...this.settings, camera };
+        const out = this.root.querySelector(`[data-camval=${key}]`);
+        if (out) out.textContent = fmt(key, camera[key]);
+        this.commitSettings();
+      }),
+    );
+    this.root
+      .querySelector<HTMLInputElement>('[data-camshake]')
+      ?.addEventListener('change', (e) => {
+        const camera = { ...this.settings.camera, shake: (e.target as HTMLInputElement).checked };
+        this.settings = { ...this.settings, camera };
+        this.commitSettings();
+      });
+    this.on('[data-go=camreset]', () => {
+      this.settings = { ...this.settings, camera: { ...DEFAULT_CAMERA } };
+      this.commitSettings();
+      this.renderSettings();
+    });
+    this.root.querySelectorAll<HTMLButtonElement>('[data-scheme]').forEach((b) =>
+      b.addEventListener('click', () => {
+        const controls = { ...this.settings.controls, scheme: b.dataset.scheme as ControlScheme };
+        this.settings = { ...this.settings, controls };
+        this.rebinding = null;
+        this.commitSettings();
+        this.renderSettings();
+      }),
+    );
+    this.root.querySelector<HTMLInputElement>('[data-sens]')?.addEventListener('input', (e) => {
+      const v = Number((e.target as HTMLInputElement).value);
+      this.settings = {
+        ...this.settings,
+        controls: { ...this.settings.controls, mouseSensitivity: v },
+      };
+      const out = this.root.querySelector('[data-mousesens]');
+      if (out) out.textContent = v.toFixed(1);
+      this.commitSettings();
+    });
+    this.root.querySelectorAll<HTMLButtonElement>('[data-key]').forEach((b) =>
+      b.addEventListener('click', () => {
+        this.rebinding = b.dataset.key as Action;
+        this.renderSettings();
+      }),
+    );
+    this.on('[data-go=keyreset]', () => {
+      this.settings = {
+        ...this.settings,
+        controls: { ...DEFAULT_CONTROLS, scheme: this.settings.controls.scheme, keys: {} },
+      };
+      this.commitSettings();
+      this.renderSettings();
+    });
+  }
+
   // ----------------------------------------------------------------- online
 
   /** Muestra la pantalla de conexión online. */
@@ -745,6 +953,7 @@ export class Menus {
           ['1v1', '1v1'],
           ['2v2', '2v2'],
           ['3v3', '3v3'],
+          ['4v4', '4v4'],
         ])}</select>
         <select data-cfg="level">${opt(
           l.botLevel,
@@ -847,11 +1056,13 @@ export class Menus {
       <h2>Pausa</h2>
       <div class="stack">
         <button class="btn primary" data-go="resume">Continuar</button>
+        <button class="btn" data-go="settings">Ajustes</button>
         ${this.pauseMode === 'match' ? '<button class="btn" data-go="restart">Reiniciar partida</button>' : ''}
         <button class="btn" data-go="abandon">${this.pauseMode === 'practice' ? 'Salir al menú' : 'Abandonar partida'}</button>
       </div>
       <p class="foot">Esc para continuar</p>`);
     this.on('[data-go=resume]', () => this.cb.resume());
+    this.on('[data-go=settings]', () => this.openSettings('pause'));
     this.on('[data-go=restart]', () => this.cb.restart());
     this.on('[data-go=abandon]', () => this.cb.abandon());
   }

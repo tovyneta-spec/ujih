@@ -198,7 +198,7 @@ export class World {
       if (car.isJumping && !wasJumping) this.events.push({ type: 'jump', carId: car.id });
       if (car.flipUsed && !hadFlip) this.events.push({ type: 'flip', carId: car.id });
     }
-    this.ball.integrate(dt);
+    this.noteBounce(this.ball.integrateSub(dt));
 
     for (const car of this.cars) {
       if (car.demolished) continue;

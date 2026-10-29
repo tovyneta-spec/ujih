@@ -46,6 +46,22 @@ export class Ball {
     this.quat.integrate(this.angVel.x, this.angVel.y, this.angVel.z, dt);
   }
 
+  /**
+   * Integra en subpasos y resuelve el estadio en cada uno: a gran velocidad la pelota avanza hasta
+   * ~50 uu por tick, así que subdividir evita penetraciones profundas en esquinas, rampas y postes.
+   * Devuelve el mayor impacto contra el estadio de los subpasos.
+   */
+  integrateSub(dt: number): number {
+    const step = (this.vel.length() * dt) / (this.radius * 0.3);
+    const n = step > 3 ? 4 : step > 2 ? 3 : step > 1 ? 2 : 1;
+    let impact = 0;
+    for (let i = 0; i < n; i++) {
+      this.integrate(dt / n);
+      if (n > 1) impact = Math.max(impact, this.collideArena());
+    }
+    return impact;
+  }
+
   /** Colisión esfera-estadio con rebote y fricción (genera giro). */
   collideArena(): number {
     let impact = 0;

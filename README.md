@@ -100,6 +100,19 @@ npm run lint       # ESLint
 npm run format     # Prettier
 ```
 
+## Ajustes, controles y novedades
+
+- **Ajustes** (menú principal y pausa): cámara (FOV, distancia, altura, ángulo, rigidez, giro, transición y
+  sacudida) y controles. Se guardan en el navegador.
+- **Esquemas de control**: _Teclado_ (WASD, reasignable tecla a tecla) y **67tetitasdani**: `W` acelera,
+  `S` frena y marcha atrás, el ratón gira a izquierda/derecha (posición respecto al centro, con
+  sensibilidad ajustable), clic izquierdo = turbo, clic derecho = salto. `Q/E`, `Ctrl/Z`, `C`, `V` siguen igual.
+- **Formato 4v4** (local y online) y **9 carrocerías**: se suman _Víbora_ (cuña baja), _Titán_ (camioneta
+  alta con ruedas enormes) y _Burbuja_ (microcoche con cúpula).
+- Tras un gol la pelota desaparece con la explosión y vuelve en el saque; el fondo de las porterías es opaco.
+- Física: la pelota se integra en subpasos contra el estadio a alta velocidad (menos penetración en
+  esquinas y rampas). Gráficos: faros/piloto con el color del equipo y halo de la pelota que crece con la velocidad.
+
 ## Multijugador online
 
 Menú principal → **Jugar online**: conecta al servidor, elige partida rápida (1v1/2v2/3v3; los huecos

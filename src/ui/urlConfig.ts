@@ -25,7 +25,7 @@ export function parseSetup(search: string): GameSetup {
   const legacyFormat = legacy === 'match3' ? '3v3' : legacy === 'match2' ? '2v2' : '1v1';
   const d = DEFAULT_MUTATORS;
   const mutators: Mutators = {
-    format: pick(q.get('format'), ['1v1', '2v2', '3v3'], legacyFormat),
+    format: pick(q.get('format'), ['1v1', '2v2', '3v3', '4v4'], legacyFormat),
     durationMinutes: num(q.get('duration'), [0, 3, 5, 10, 20], d.durationMinutes),
     maxGoals: Math.max(0, Math.floor(Number(q.get('goals') ?? d.maxGoals)) || 0),
     overtime: q.get('overtime') !== '0',

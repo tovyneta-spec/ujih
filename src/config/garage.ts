@@ -39,6 +39,9 @@ export const BODY_IDS: readonly CarBodyId[] = [
   'breakout',
   'hybrid',
   'merc',
+  'viper',
+  'titan',
+  'bubble',
 ];
 
 export const WHEEL_STYLES: Record<WheelStyle, string> = {

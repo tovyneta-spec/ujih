@@ -28,7 +28,7 @@ import { OutputPass } from 'three/examples/jsm/postprocessing/OutputPass.js';
 import { RenderPass } from 'three/examples/jsm/postprocessing/RenderPass.js';
 import { UnrealBloomPass } from 'three/examples/jsm/postprocessing/UnrealBloomPass.js';
 import { RoomEnvironment } from 'three/examples/jsm/environments/RoomEnvironment.js';
-import { CAR_BODIES, THEMES } from '../config';
+import { BALL, CAR_BODIES, THEMES } from '../config';
 import type { CarBodyId, GoalExplosion, Theme, TrailStyle } from '../config';
 import type { RenderFrame } from '../replay';
 import { Vec3 } from '../sim';
@@ -298,6 +298,7 @@ export class GameRenderer {
     explosionOf: (carId: number) => GoalExplosion = () => 'classic',
   ): void {
     this.lookOf = lookOf;
+    this.ballHidden = false;
     this.explosionOf = explosionOf;
     this.world = world;
     this.focusCarId = focusCarId;
@@ -331,10 +332,18 @@ export class GameRenderer {
   }
 
   /** Reacciona a eventos de la simulación (efectos, público, marcador). */
+  /** Oculta o muestra la pelota (se oculta al marcar gol). */
+  ballHidden = false;
+
   onEvent(e: SimEvent): void {
     const world = this.world;
     if (!world) return;
     this.effects.onEvent(e, world, (id) => this.explosions[id] ?? 'classic');
+    // La pelota desaparece con la explosión del gol y vuelve en el saque (o en la repetición).
+    if (e.type === 'matchGoal') this.rig.kick(9);
+    else if (e.type === 'demolition') this.rig.kick(5);
+    if (e.type === 'goal' || e.type === 'matchGoal') this.ballHidden = true;
+    else if (e.type === 'kickoffReset' || e.type === 'replayStart') this.ballHidden = false;
     if (e.type === 'matchGoal') {
       this.stadium?.excite(1);
       this.stadium?.setScore(world.match.score[0], world.match.score[1]);
@@ -485,6 +494,15 @@ export class GameRenderer {
       this.tq2.set(b.quat.x, b.quat.y, b.quat.z, b.quat.w);
       this.tq.slerp(this.tq2, alpha);
     }
+    if (this.ball.halo) {
+      // El halo se intensifica con la velocidad de la pelota.
+      const v = world.ball.vel.length();
+      const k = Math.min(1, v / 4500);
+      (this.ball.halo.material as { opacity: number }).opacity = 0.12 + k * 0.5;
+      this.ball.halo.scale.setScalar(BALL.radius * (3.2 + k * 1.2) * this.ballScale);
+    }
+    this.ball.group.visible = !this.ballHidden;
+    this.ball.blob.visible = !this.ballHidden;
     this.ball.group.position.set(this.ballPos.x, this.ballPos.y, this.ballPos.z);
     this.ball.group.quaternion.copy(this.tq);
     this.ball.blob.position.set(this.ballPos.x, this.ballPos.y, 1);

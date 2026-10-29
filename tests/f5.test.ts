@@ -18,8 +18,8 @@ import { World, neutralInput } from '../src/sim';
 import type { SimEvent } from '../src/sim';
 
 describe('garaje', () => {
-  it('ofrece 6 carrocerías, 5 ruedas, ≥4 estelas y ≥3 explosiones', () => {
-    expect(BODY_IDS).toHaveLength(6);
+  it('ofrece 9 carrocerías, 5 ruedas, ≥4 estelas y ≥3 explosiones', () => {
+    expect(BODY_IDS).toHaveLength(9);
     for (const id of BODY_IDS) expect(CAR_BODIES[id]).toBeDefined();
     expect(Object.keys(WHEEL_STYLES)).toHaveLength(5);
     expect(Object.keys(TRAILS).length).toBeGreaterThanOrEqual(4);

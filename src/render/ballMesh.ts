@@ -8,6 +8,9 @@ import {
   MeshLambertMaterial,
   MeshStandardMaterial,
   PlaneGeometry,
+  Sprite,
+  SpriteMaterial,
+  AdditiveBlending,
 } from 'three';
 import { BALL } from '../config';
 import type { Quality } from './quality';
@@ -18,6 +21,8 @@ export interface BallVisual {
   mesh: Mesh;
   /** Mancha de sombra en el suelo para localizar la pelota. */
   blob: Mesh;
+  /** Halo aditivo que crece con la velocidad (no existe en el nivel de calidad bajo). */
+  halo: Sprite | null;
 }
 
 export function buildBallMesh(q: Quality): BallVisual {
@@ -48,5 +53,21 @@ export function buildBallMesh(q: Quality): BallVisual {
     }),
   );
   blob.position.z = 1;
-  return { group, mesh, blob };
+
+  let halo: Sprite | null = null;
+  if (!q.lambert) {
+    halo = new Sprite(
+      new SpriteMaterial({
+        map: makeBlobTexture(),
+        color: 0x9fc4ff,
+        transparent: true,
+        opacity: 0.15,
+        depthWrite: false,
+        blending: AdditiveBlending,
+      }),
+    );
+    halo.scale.setScalar(BALL.radius * 3.4);
+    group.add(halo);
+  }
+  return { group, mesh, blob, halo };
 }
