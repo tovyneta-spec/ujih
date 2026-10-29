@@ -407,6 +407,46 @@ function mk(
     : new MeshStandardMaterial({ color, roughness, metalness, emissive: emissive ?? 0x000000 });
 }
 
+/** Suaviza un polígono cerrado cortando esquinas (Chaikin): siluetas más orgánicas y menos de cartón. */
+function roundCorners(pts: P[], iterations = 1): P[] {
+  let cur = pts;
+  for (let it = 0; it < iterations; it++) {
+    const out: P[] = [];
+    for (let i = 0; i < cur.length; i++) {
+      const a = cur[i];
+      const b = cur[(i + 1) % cur.length];
+      out.push([a[0] * 0.75 + b[0] * 0.25, a[1] * 0.75 + b[1] * 0.25]);
+      out.push([a[0] * 0.25 + b[0] * 0.75, a[1] * 0.25 + b[1] * 0.75]);
+    }
+    cur = out;
+  }
+  return cur;
+}
+
+/** Aleta semicircular sobre una rueda: arco que abraza el neumático por arriba. */
+function fender(
+  x: number,
+  y: number,
+  z: number,
+  r: number,
+  width: number,
+  material: Material,
+): Mesh {
+  const ro = r + 5;
+  const ri = r + 1.2;
+  const sh = new Shape();
+  sh.absarc(0, 0, ro, 0, Math.PI, false);
+  sh.lineTo(-ri, 0);
+  sh.absarc(0, 0, ri, Math.PI, 0, true);
+  sh.closePath();
+  const g = new ExtrudeGeometry(sh, { depth: width + 3, bevelEnabled: false, curveSegments: 14 });
+  g.translate(0, 0, -(width + 3) / 2);
+  g.rotateX(Math.PI / 2); // forma (x,y) → (x,z); extrusión → eje y
+  const m = new Mesh(g, material);
+  m.position.set(x, y, z);
+  return m;
+}
+
 function extruded(points: P[], depth: number, bevel: number): ExtrudeGeometry {
   const shape = new Shape();
   points.forEach(([x, z], i) => (i === 0 ? shape.moveTo(x, z) : shape.lineTo(x, z)));
@@ -533,8 +573,27 @@ export function buildCarMesh(spec: CarBodySpec, look: CarLook, quality: Quality)
   };
   const toXZ = (pts: P[]): P[] => pts.map(([fx, fz]) => [X(fx), Z(fz)]);
 
-  c.add(new Mesh(extruded(toXZ(shape.lower), W * shape.lowerWidth, 3), body));
-  c.add(new Mesh(extruded(toXZ(shape.cabin), W * shape.cabinWidth, 2), glass));
+  // Silueta suavizada (esquinas cortadas) y aletas de rueda sobre cada rueda.
+  c.add(new Mesh(extruded(roundCorners(toXZ(shape.lower)), W * shape.lowerWidth, 3), body));
+  c.add(new Mesh(extruded(roundCorners(toXZ(shape.cabin)), W * shape.cabinWidth, 2), glass));
+  {
+    const m1 = spec.model;
+    const wy1 = W / 2 - m1.wheelWidth / 2 + 3;
+    for (const sx of [-1, 1]) {
+      for (const sy of [-1, 1]) {
+        c.add(
+          fender(
+            sx * L * 0.3,
+            sy * wy1,
+            -H / 2 + m1.wheelRadius,
+            m1.wheelRadius,
+            m1.wheelWidth,
+            body,
+          ),
+        );
+      }
+    }
+  }
   // Techo con el color secundario.
   const roofPts = shape.cabin.filter(([, fz]) => fz >= 0.9);
   if (roofPts.length >= 2) {
@@ -601,22 +660,10 @@ export function buildCarMesh(spec: CarBodySpec, look: CarLook, quality: Quality)
   addDecal(c, look.decal, shape, spec);
   addAntenna(c, look, shape);
 
-  // Detalles: pasos de rueda oscuros, retrovisores y línea de puerta (profundidad sin coste de dibujo:
+  // Detalles: retrovisores y línea de puerta (profundidad sin coste de dibujo:
   // se fusionan con el material oscuro).
   {
-    const m0 = spec.model;
     const hw = (W * shape.lowerWidth) / 2 + 3.4;
-    for (const sx of [1, -1]) {
-      for (const sy of [1, -1]) {
-        const arch = new Mesh(
-          new CylinderGeometry(m0.wheelRadius + 4, m0.wheelRadius + 4, 1, 16),
-          dark,
-        );
-        arch.rotation.x = Math.PI / 2;
-        arch.position.set(sx * L * 0.3, sy * hw, -H / 2 + m0.wheelRadius);
-        c.add(arch);
-      }
-    }
     const cabinFront = shape.cabin[shape.cabin.length - 1][0];
     for (const sy of [1, -1]) {
       box(
