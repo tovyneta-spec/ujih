@@ -600,3 +600,80 @@ button {
 .menu:has(.grid) .panel {
   width: min(96vw, 860px);
 }
+
+.menu.garage {
+  place-items: center start;
+  background: linear-gradient(
+    90deg,
+    rgba(8, 14, 32, 0.85) 0%,
+    rgba(8, 14, 32, 0.5) 45%,
+    rgba(8, 14, 32, 0) 70%
+  );
+}
+.menu.garage .panel {
+  width: min(94vw, 470px);
+  max-height: calc(100vh - 32px);
+  overflow: auto;
+  text-align: left;
+}
+.menu.garage h2 {
+  text-align: center;
+}
+.menu.garage .row {
+  margin: 8px 0;
+}
+.menu.garage .segs {
+  flex-wrap: wrap;
+}
+.menu.garage .seg {
+  flex: 1 1 auto;
+  padding: 7px 8px;
+  font-size: 13px;
+}
+.menu.garage .buttons {
+  flex-wrap: wrap;
+}
+.menu input[type='text'] {
+  font: inherit;
+  color: var(--ink);
+  background: #131c38;
+  border: 1px solid rgba(255, 255, 255, 0.25);
+  border-radius: 8px;
+  padding: 8px;
+}
+.swatches {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  align-items: center;
+}
+.swatches .sw {
+  width: 26px;
+  height: 26px;
+  border-radius: 50%;
+  border: 2px solid rgba(255, 255, 255, 0.25);
+  cursor: pointer;
+  padding: 0;
+}
+.swatches .sw.on {
+  border-color: #fff;
+  box-shadow: 0 0 0 2px #3b86ff;
+}
+.swatches input[type='color'] {
+  width: 34px;
+  height: 28px;
+  padding: 0;
+  border: none;
+  background: none;
+  cursor: pointer;
+}
+.menu .slider input[type='range'] {
+  width: 100%;
+}
+.menu .check {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  margin-top: 12px;
+  text-align: left;
+}

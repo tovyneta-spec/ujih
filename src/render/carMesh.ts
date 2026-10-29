@@ -1,29 +1,269 @@
-// Modelo procedural low-poly del coche (sin assets externos). Ejes locales: x adelante, y izquierda, z arriba.
+// Modelos procedurales low-poly de las 6 carrocerías, con ruedas, calcomanías, antena y estela
+// personalizables. Ejes locales: x adelante, y izquierda, z arriba; el origen es el centro de la hitbox.
 import {
   AdditiveBlending,
   BoxGeometry,
   Color,
   ConeGeometry,
   CylinderGeometry,
+  DoubleSide,
   ExtrudeGeometry,
   Group,
   Mesh,
   MeshBasicMaterial,
   MeshStandardMaterial,
+  OctahedronGeometry,
+  PlaneGeometry,
   Shape,
+  SphereGeometry,
+  TorusGeometry,
+  Vector3,
 } from 'three';
-import type { CarBodySpec } from '../config';
+import { TRAILS } from '../config';
+import type {
+  AntennaStyle,
+  CarBodyId,
+  CarBodySpec,
+  DecalStyle,
+  TrailStyle,
+  WheelStyle,
+} from '../config';
+import { makeBlobTexture } from './textures';
+
+export interface CarLook {
+  primary: Color;
+  secondary: Color;
+  /** Color del equipo (barra del techo y brillo bajo el coche). */
+  team: Color;
+  wheels: WheelStyle;
+  trail: TrailStyle;
+  antenna: AntennaStyle;
+  decal: DecalStyle;
+}
 
 export interface CarVisual {
   group: Group;
   /** Pivotes de dirección de las ruedas delanteras. */
   steerPivots: Group[];
-  wheels: Mesh[];
+  wheels: Mesh[] | Group[];
   flames: Mesh[];
-  setColors(primary: Color, secondary: Color): void;
+  flameMaterials: MeshBasicMaterial[];
+  trail: TrailStyle;
+  /** Posiciones locales de los escapes y de las ruedas traseras (para partículas). */
+  exhaust: Vector3[];
+  rearWheels: Vector3[];
+  dispose(): void;
 }
 
-function extruded(points: [number, number][], depth: number, bevel: number): ExtrudeGeometry {
+type P = [number, number];
+
+interface BodyShape {
+  /** Polígonos en fracciones (x: 0 trasera → 1 morro; z: 0 base → 1 techo). */
+  lower: P[];
+  cabin: P[];
+  lowerWidth: number;
+  cabinWidth: number;
+  extras?: (c: Ctx) => void;
+}
+
+interface Ctx {
+  root: Group;
+  L: number;
+  W: number;
+  H: number;
+  zb: number;
+  zt: number;
+  /** Convierte fracciones a coordenadas locales. */
+  X: (f: number) => number;
+  Z: (f: number) => number;
+  body: MeshStandardMaterial;
+  trim: MeshStandardMaterial;
+  dark: MeshStandardMaterial;
+}
+
+const box = (
+  c: Ctx,
+  w: number,
+  d: number,
+  h: number,
+  x: number,
+  y: number,
+  z: number,
+  m: MeshStandardMaterial,
+): Mesh => {
+  const mesh = new Mesh(new BoxGeometry(w, d, h), m);
+  mesh.position.set(x, y, z);
+  c.root.add(mesh);
+  return mesh;
+};
+
+const SHAPES: Record<CarBodyId, BodyShape> = {
+  // Hatchback compacto y equilibrado.
+  octane: {
+    lower: [
+      [0, 0],
+      [1, 0],
+      [1, 0.22],
+      [0.93, 0.34],
+      [0.62, 0.42],
+      [0.2, 0.42],
+      [0.02, 0.36],
+      [0, 0.2],
+    ],
+    cabin: [
+      [0.28, 0.42],
+      [0.4, 1],
+      [0.58, 1],
+      [0.68, 0.42],
+    ],
+    lowerWidth: 0.9,
+    cabinWidth: 0.72,
+    extras: (c) => box(c, c.L * 0.08, c.W * 0.82, 3, c.X(0.03), 0, c.Z(0.46), c.trim),
+  },
+  // Cuña larga y baja con gran alerón.
+  dominus: {
+    lower: [
+      [0, 0],
+      [1, 0],
+      [1, 0.2],
+      [0.9, 0.3],
+      [0.58, 0.36],
+      [0.1, 0.36],
+      [0, 0.3],
+    ],
+    cabin: [
+      [0.18, 0.36],
+      [0.3, 0.92],
+      [0.48, 0.92],
+      [0.58, 0.36],
+    ],
+    lowerWidth: 0.95,
+    cabinWidth: 0.66,
+    extras: (c) => {
+      box(c, c.L * 0.1, c.W * 0.96, 3, c.X(0.0), 0, c.Z(0.78), c.trim);
+      for (const s of [-1, 1]) {
+        box(c, 5, 3, c.H * 0.42, c.X(0.04), s * c.W * 0.3, c.Z(0.52), c.trim);
+        // Aletas ensanchadas sobre las ruedas y splitter delantero.
+        box(c, c.L * 0.26, 7, 6, c.X(0.2), s * (c.W * 0.5 + 1), c.Z(0.24), c.body);
+        box(c, c.L * 0.26, 7, 6, c.X(0.8), s * (c.W * 0.5 + 1), c.Z(0.24), c.body);
+      }
+      box(c, 9, c.W * 0.98, 3, c.X(1.02), 0, c.Z(0.02), c.dark);
+    },
+  },
+  // Tabla plana con cabina pequeña muy retrasada.
+  plank: {
+    lower: [
+      [0, 0],
+      [1, 0],
+      [1, 0.24],
+      [0.85, 0.34],
+      [0.55, 0.36],
+      [0.1, 0.36],
+      [0, 0.3],
+    ],
+    cabin: [
+      [0.1, 0.36],
+      [0.22, 0.95],
+      [0.4, 0.95],
+      [0.5, 0.36],
+    ],
+    lowerWidth: 0.96,
+    cabinWidth: 0.6,
+    extras: (c) => {
+      for (const s of [-1, 1])
+        box(c, c.L * 0.22, 3, 2, c.X(0.7), s * c.W * 0.18, c.Z(0.36) + 1, c.dark);
+    },
+  },
+  // Cuña agresiva con morro puntiagudo y aleta trasera.
+  breakout: {
+    lower: [
+      [0, 0],
+      [1, 0],
+      [1, 0.15],
+      [0.88, 0.3],
+      [0.5, 0.4],
+      [0.12, 0.42],
+      [0, 0.34],
+    ],
+    cabin: [
+      [0.3, 0.42],
+      [0.42, 0.92],
+      [0.56, 0.92],
+      [0.66, 0.42],
+    ],
+    lowerWidth: 0.88,
+    cabinWidth: 0.6,
+    extras: (c) => {
+      box(c, c.L * 0.16, 3, c.H * 0.6, c.X(0.06), 0, c.Z(0.75), c.trim);
+      box(c, c.L * 0.06, c.W * 0.75, 3, c.X(0.97), 0, c.Z(0.1), c.dark);
+      // Morro en punta y tomas de aire laterales.
+      const nose = new Mesh(new ConeGeometry(c.W * 0.1, c.L * 0.14, 4), c.trim);
+      nose.rotation.z = -Math.PI / 2;
+      nose.position.set(c.X(1.04), 0, c.Z(0.12));
+      c.root.add(nose);
+      for (const s of [-1, 1])
+        box(c, c.L * 0.14, 3, c.H * 0.18, c.X(0.45), s * (c.W * 0.44 + 1), c.Z(0.22), c.dark);
+    },
+  },
+  // Compacto redondeado con doble aleta.
+  hybrid: {
+    lower: [
+      [0, 0.05],
+      [0.04, 0],
+      [0.96, 0],
+      [1, 0.08],
+      [1, 0.26],
+      [0.9, 0.36],
+      [0.64, 0.42],
+      [0.18, 0.42],
+      [0.02, 0.34],
+    ],
+    cabin: [
+      [0.26, 0.42],
+      [0.36, 1],
+      [0.62, 1],
+      [0.72, 0.42],
+    ],
+    lowerWidth: 0.92,
+    cabinWidth: 0.74,
+    extras: (c) => {
+      for (const s of [-1, 1])
+        box(c, c.L * 0.1, 3, c.H * 0.32, c.X(0.05), s * c.W * 0.34, c.Z(0.62), c.trim);
+    },
+  },
+  // Todoterreno alto y cuadrado con barras de techo y defensa.
+  merc: {
+    lower: [
+      [0, 0],
+      [1, 0],
+      [1, 0.3],
+      [0.94, 0.4],
+      [0.72, 0.44],
+      [0.02, 0.44],
+      [0, 0.38],
+    ],
+    cabin: [
+      [0.1, 0.44],
+      [0.12, 1],
+      [0.72, 1],
+      [0.78, 0.44],
+    ],
+    lowerWidth: 0.98,
+    cabinWidth: 0.9,
+    extras: (c) => {
+      for (const f of [0.25, 0.5]) box(c, 4, c.W * 0.8, 4, c.X(f), 0, c.zt + 5, c.dark);
+      for (const s of [-1, 1]) box(c, c.L * 0.5, 3, 3, c.X(0.4), s * c.W * 0.4, c.zt + 5, c.dark);
+      box(c, 6, c.W * 0.86, c.H * 0.16, c.X(1.0), 0, c.Z(0.22), c.dark);
+      // Rueda de repuesto en la trasera.
+      const spare = new Mesh(new CylinderGeometry(c.H * 0.2, c.H * 0.2, 6, 14), c.dark);
+      spare.rotation.z = Math.PI / 2;
+      spare.position.set(c.X(-0.02), 0, c.Z(0.6));
+      c.root.add(spare);
+    },
+  },
+};
+
+function extruded(points: P[], depth: number, bevel: number): ExtrudeGeometry {
   const shape = new Shape();
   points.forEach(([x, z], i) => (i === 0 ? shape.moveTo(x, z) : shape.lineTo(x, z)));
   shape.closePath();
@@ -35,11 +275,67 @@ function extruded(points: [number, number][], depth: number, bevel: number): Ext
     bevelSegments: 2,
   });
   geo.translate(0, 0, -depth / 2);
-  geo.rotateX(Math.PI / 2); // forma (x,y) → (x,z) ; extrusión → eje y
+  geo.rotateX(Math.PI / 2); // forma (x,y) → (x,z); extrusión → eje y
   return geo;
 }
 
-export function buildCarMesh(spec: CarBodySpec, primary: Color, secondary: Color): CarVisual {
+/** Rueda con el estilo elegido; el eje de giro es el eje y local. */
+function buildWheel(style: WheelStyle, r: number, w: number, accent: Color): Group {
+  const g = new Group();
+  const tire = new Mesh(
+    new CylinderGeometry(r, r, w, 16),
+    new MeshStandardMaterial({ color: 0x15171c, roughness: 0.9 }),
+  );
+  g.add(tire);
+  const rimMat = new MeshStandardMaterial({
+    color: style === 'chrome' ? 0xf2f5ff : 0xd9dde6,
+    roughness: style === 'chrome' ? 0.08 : 0.3,
+    metalness: style === 'chrome' ? 1 : 0.8,
+  });
+  const disc = (rad: number): Mesh => new Mesh(new CylinderGeometry(rad, rad, w + 1, 12), rimMat);
+  switch (style) {
+    case 'classic':
+      g.add(disc(r * 0.62));
+      break;
+    case 'chrome':
+      g.add(disc(r * 0.78));
+      break;
+    case 'spokes': {
+      g.add(disc(r * 0.2));
+      for (let i = 0; i < 5; i++) {
+        const spoke = new Mesh(new BoxGeometry(r * 1.3, w + 1, r * 0.16), rimMat);
+        spoke.rotation.y = (i / 5) * Math.PI;
+        g.add(spoke);
+      }
+      break;
+    }
+    case 'turbine': {
+      g.add(disc(r * 0.18));
+      for (let i = 0; i < 8; i++) {
+        const blade = new Mesh(new BoxGeometry(r * 0.62, w + 1, r * 0.1), rimMat);
+        const a = (i / 8) * Math.PI * 2;
+        blade.position.set(Math.cos(a) * r * 0.36, 0, Math.sin(a) * r * 0.36);
+        blade.rotation.y = -a + 0.5;
+        g.add(blade);
+      }
+      break;
+    }
+    case 'neon': {
+      g.add(disc(r * 0.55));
+      const ring = new Mesh(
+        new TorusGeometry(r * 0.72, 1.6, 6, 20),
+        new MeshBasicMaterial({ color: accent.clone().multiplyScalar(2.2), toneMapped: false }),
+      );
+      ring.rotation.x = Math.PI / 2;
+      ring.position.y = w / 2 + 0.6;
+      g.add(ring);
+      break;
+    }
+  }
+  return g;
+}
+
+export function buildCarMesh(spec: CarBodySpec, look: CarLook): CarVisual {
   const group = new Group();
   const root = new Group();
   root.position.set(spec.visualOffset.x, spec.visualOffset.y, spec.visualOffset.z);
@@ -49,67 +345,84 @@ export function buildCarMesh(spec: CarBodySpec, primary: Color, secondary: Color
   const W = spec.width;
   const H = spec.height;
   const m = spec.model;
+  const shape = SHAPES[spec.id];
 
-  const bodyMat = new MeshStandardMaterial({ color: primary, roughness: 0.35, metalness: 0.35 });
-  const trimMat = new MeshStandardMaterial({ color: secondary, roughness: 0.5, metalness: 0.2 });
-  const glassMat = new MeshStandardMaterial({ color: 0x0b1424, roughness: 0.08, metalness: 0.7 });
-  const tireMat = new MeshStandardMaterial({ color: 0x15171c, roughness: 0.9 });
-  const rimMat = new MeshStandardMaterial({ color: 0xd9dde6, roughness: 0.3, metalness: 0.8 });
+  const body = new MeshStandardMaterial({ color: look.primary, roughness: 0.28, metalness: 0.5 });
+  const trim = new MeshStandardMaterial({ color: look.secondary, roughness: 0.45, metalness: 0.3 });
+  const dark = new MeshStandardMaterial({ color: 0x14171f, roughness: 0.6, metalness: 0.2 });
+  const glass = new MeshStandardMaterial({ color: 0x0b1424, roughness: 0.05, metalness: 0.85 });
 
   const zb = -H / 2 + m.wheelRadius * 0.55;
   const zt = H / 2;
-  const zd = zb + (zt - zb) * (1 - m.cabinHeight);
-  const xr = -L / 2;
-  const xf = L / 2;
-  const xCabR = xr + L * m.cabinStart;
-  const xCabF = xr + L * m.cabinEnd;
-  const inset = L * 0.07;
+  const X = (f: number): number => -L / 2 + f * L;
+  const Z = (f: number): number => zb + f * (zt - zb);
+  const c: Ctx = { root, L, W, H, zb, zt, X, Z, body, trim, dark };
+  const toXZ = (pts: P[]): P[] => pts.map(([fx, fz]) => [X(fx), Z(fz)]);
 
-  const lower = extruded(
-    [
-      [xr, zb],
-      [xf, zb],
-      [xf, zb + (zd - zb) * 0.55],
-      [xCabF, zd],
-      [xCabR, zd],
-      [xr, zd - (zd - zb) * 0.15],
-    ],
-    W * 0.9,
-    3,
-  );
-  root.add(new Mesh(lower, bodyMat));
-
-  const cabin = extruded(
-    [
-      [xCabR, zd],
-      [xCabR + inset, zt],
-      [xCabF - inset * 1.4, zt],
-      [xCabF, zd],
-    ],
-    W * 0.72,
-    2,
-  );
-  root.add(new Mesh(cabin, glassMat));
-
-  // Techo, alerón y faldones con el color secundario.
-  const roof = new Mesh(new BoxGeometry(xCabF - xCabR - inset * 2.6, W * 0.7, 2), trimMat);
-  roof.position.set((xCabR + xCabF) / 2 - inset * 0.2, 0, zt + 1);
-  root.add(roof);
-  const spoiler = new Mesh(new BoxGeometry(L * 0.07, W * 0.85, 3), trimMat);
-  spoiler.position.set(xr + L * 0.03, 0, zd + 3);
-  root.add(spoiler);
-  for (const s of [-1, 1]) {
-    const skirt = new Mesh(new BoxGeometry(L * 0.62, 3, (zd - zb) * 0.3), trimMat);
-    skirt.position.set(L * 0.02, s * (W * 0.45 + 1), zb + (zd - zb) * 0.25);
-    root.add(skirt);
+  root.add(new Mesh(extruded(toXZ(shape.lower), W * shape.lowerWidth, 3), body));
+  root.add(new Mesh(extruded(toXZ(shape.cabin), W * shape.cabinWidth, 2), glass));
+  // Techo con el color secundario.
+  const roofPts = shape.cabin.filter(([, fz]) => fz >= 0.9);
+  if (roofPts.length >= 2) {
+    const x0 = X(roofPts[0][0]);
+    const x1 = X(roofPts[roofPts.length - 1][0]);
+    box(c, x1 - x0, W * shape.cabinWidth * 0.95, 2, (x0 + x1) / 2, 0, Z(roofPts[0][1]) + 1, trim);
   }
-  const bumper = new Mesh(new BoxGeometry(4, W * 0.8, (zd - zb) * 0.3), trimMat);
-  bumper.position.set(xf, 0, zb + (zd - zb) * 0.22);
-  root.add(bumper);
+  // Faldones y parachoques.
+  for (const s of [-1, 1]) {
+    box(
+      c,
+      L * 0.6,
+      3,
+      (Z(0.4) - zb) * 0.32,
+      L * 0.02,
+      s * (W * shape.lowerWidth * 0.5 + 1),
+      zb + (Z(0.4) - zb) * 0.25,
+      trim,
+    );
+  }
+  box(
+    c,
+    4,
+    W * shape.lowerWidth * 0.8,
+    (Z(0.4) - zb) * 0.3,
+    X(1),
+    0,
+    zb + (Z(0.4) - zb) * 0.22,
+    trim,
+  );
+  shape.extras?.(c);
+
+  // Barra luminosa del equipo sobre el parabrisas y brillo bajo el coche.
+  const teamEmissive = new MeshBasicMaterial({
+    color: look.team.clone().multiplyScalar(2.4),
+    toneMapped: false,
+  });
+  const roofX = shape.cabin.length >= 3 ? X(shape.cabin[shape.cabin.length - 2][0]) : X(0.6);
+  const teamBar = new Mesh(new BoxGeometry(3, W * shape.cabinWidth * 0.8, 2), teamEmissive);
+  teamBar.position.set(roofX + 4, 0, Z(0.97));
+  root.add(teamBar);
+  const glow = new Mesh(
+    new PlaneGeometry(L * 1.25, W * 1.4),
+    new MeshBasicMaterial({
+      map: makeBlobTexture(),
+      color: look.team,
+      transparent: true,
+      opacity: 0.6,
+      depthWrite: false,
+      blending: AdditiveBlending,
+    }),
+  );
+  glow.position.set(0, 0, -H / 2 + 0.6);
+  root.add(glow);
+
+  addDecal(c, look.decal, shape, spec);
+  addAntenna(c, look, shape);
 
   // Ruedas.
-  const wheels: Mesh[] = [];
+  const wheels: Group[] = [];
   const steerPivots: Group[] = [];
+  const rearWheels: Vector3[] = [];
   const wx = L * 0.3;
   const wy = W / 2 - m.wheelWidth / 2 + 3;
   const wz = -H / 2 + m.wheelRadius;
@@ -117,53 +430,165 @@ export function buildCarMesh(spec: CarBodySpec, primary: Color, secondary: Color
     for (const sy of [1, -1]) {
       const pivot = new Group();
       pivot.position.set(sx * wx, sy * wy, wz);
-      const wheel = new Mesh(
-        new CylinderGeometry(m.wheelRadius, m.wheelRadius, m.wheelWidth, 16),
-        tireMat,
-      );
-      const rim = new Mesh(
-        new CylinderGeometry(m.wheelRadius * 0.62, m.wheelRadius * 0.62, m.wheelWidth + 1, 10),
-        rimMat,
-      );
-      wheel.add(rim);
+      const wheel = buildWheel(look.wheels, m.wheelRadius, m.wheelWidth, look.primary);
       pivot.add(wheel);
       root.add(pivot);
       wheels.push(wheel);
       if (sx > 0) steerPivots.push(pivot);
+      else rearWheels.push(new Vector3(sx * wx, sy * wy, -H / 2 + 1).add(root.position));
     }
   }
 
-  // Llamas del turbo (se escalan según el uso).
+  // Llamas del turbo con los colores de la estela elegida.
+  const trailSpec = TRAILS[look.trail];
   const flames: Mesh[] = [];
-  const flameMat = new MeshBasicMaterial({
-    color: 0xffa33a,
-    transparent: true,
-    opacity: 0.9,
-    blending: AdditiveBlending,
-    depthWrite: false,
-  });
+  const flameMaterials: MeshBasicMaterial[] = [];
+  const exhaust: Vector3[] = [];
   for (const sy of [-1, 1]) {
-    const flame = new Mesh(new ConeGeometry(W * 0.09, L * 0.55, 10, 1, true), flameMat);
+    const outerMat = new MeshBasicMaterial({
+      color: new Color(trailSpec.outer),
+      transparent: true,
+      opacity: 0.55,
+      blending: AdditiveBlending,
+      depthWrite: false,
+      side: DoubleSide,
+    });
+    const flame = new Mesh(new ConeGeometry(W * 0.1, L * 0.6, 10, 1, true), outerMat);
     flame.geometry.rotateZ(Math.PI / 2); // punta hacia -x
-    flame.geometry.translate(-L * 0.28, 0, 0);
-    flame.position.set(xr, sy * W * 0.22, zd - (zd - zb) * 0.35);
+    flame.geometry.translate(-L * 0.3, 0, 0);
+    const pos = new Vector3(X(0), sy * W * 0.22, Z(0.18));
+    flame.position.copy(pos);
+    const coreMat = new MeshBasicMaterial({
+      color: new Color(trailSpec.core),
+      transparent: true,
+      opacity: 0.6,
+      blending: AdditiveBlending,
+      depthWrite: false,
+    });
+    const core = new Mesh(new ConeGeometry(W * 0.055, L * 0.38, 8, 1, true), coreMat);
+    core.geometry.rotateZ(Math.PI / 2);
+    core.geometry.translate(-L * 0.19, 0, 0);
+    flame.add(core);
     flame.visible = false;
     root.add(flame);
     flames.push(flame);
+    flameMaterials.push(outerMat, coreMat);
+    exhaust.push(pos.clone().add(root.position));
   }
 
   root.traverse((o) => {
     o.castShadow = true;
   });
+  glow.castShadow = false;
 
   return {
     group,
     steerPivots,
     wheels,
     flames,
-    setColors(p, s) {
-      bodyMat.color.copy(p);
-      trimMat.color.copy(s);
+    flameMaterials,
+    trail: look.trail,
+    exhaust,
+    rearWheels,
+    dispose() {
+      group.traverse((o) => {
+        const mesh = o as Mesh;
+        mesh.geometry?.dispose();
+        const mat = mesh.material as MeshStandardMaterial | undefined;
+        mat?.map?.dispose();
+        mat?.dispose?.();
+      });
     },
   };
+}
+
+function addDecal(c: Ctx, style: DecalStyle, shape: BodyShape, spec: CarBodySpec): void {
+  if (style === 'none') return;
+  const half = (c.W * shape.lowerWidth) / 2;
+  const mat = c.trim;
+  if (style === 'stripes') {
+    // Dos franjas sobre el capó (siguiendo la pendiente), el techo y el maletero.
+    const lower = shape.lower;
+    const nose = lower[lower.length > 7 ? 4 : 3];
+    const base = lower[lower.length > 7 ? 5 : 4];
+    const x0 = c.X(base[0]);
+    const z0 = c.Z(base[1]);
+    const x1 = c.X(nose[0]);
+    const z1 = c.Z(nose[1]);
+    const len = Math.hypot(x1 - x0, z1 - z0);
+    const ang = Math.atan2(z1 - z0, x1 - x0);
+    for (const s of [-1, 1]) {
+      const hood = new Mesh(new BoxGeometry(len, 7, 1.6), mat);
+      hood.position.set((x0 + x1) / 2, s * 9, (z0 + z1) / 2 + 1.2);
+      hood.rotation.y = -ang;
+      c.root.add(hood);
+      box(c, c.L * 0.1, 7, 1.6, c.X(0.08), s * 9, c.Z(0.43) + 1.2, mat);
+    }
+  } else if (style === 'dots') {
+    for (const s of [-1, 1]) {
+      for (const f of [0.3, 0.55, 0.8]) {
+        const d = new Mesh(new CylinderGeometry(c.H * 0.1, c.H * 0.1, 1.5, 12), mat);
+        d.position.set(c.X(f), s * (half + 0.8), c.Z(0.2));
+        c.root.add(d);
+      }
+    }
+  } else {
+    // Cuadros a lo largo de ambos lados.
+    const n = 8;
+    const h = (c.Z(0.3) - c.zb) * 0.32;
+    for (const s of [-1, 1]) {
+      for (let i = 0; i < n; i++) {
+        for (let j = 0; j < 2; j++) {
+          if ((i + j) % 2 === 0) continue;
+          box(
+            c,
+            (c.L * 0.7) / n,
+            1.5,
+            h,
+            c.X(0.15) + ((c.L * 0.7) / n) * i,
+            s * (half + 0.9),
+            c.zb + h * (0.7 + j),
+            mat,
+          );
+        }
+      }
+    }
+  }
+  void spec;
+}
+
+function addAntenna(c: Ctx, look: CarLook, shape: BodyShape): void {
+  if (look.antenna === 'none') return;
+  const x = c.X(0.08);
+  const y = c.W * shape.lowerWidth * 0.32;
+  const z0 = c.Z(0.42);
+  const poleH = 34;
+  const pole = new Mesh(new CylinderGeometry(1.1, 1.1, poleH, 6), c.dark);
+  pole.rotation.x = Math.PI / 2;
+  pole.position.set(x, y, z0 + poleH / 2);
+  c.root.add(pole);
+  const top = z0 + poleH;
+  if (look.antenna === 'ball') {
+    const b = new Mesh(
+      new SphereGeometry(5, 10, 8),
+      new MeshStandardMaterial({ color: look.team, emissive: look.team, emissiveIntensity: 0.6 }),
+    );
+    b.position.set(x, y, top + 3);
+    c.root.add(b);
+  } else if (look.antenna === 'flag') {
+    const f = new Mesh(
+      new PlaneGeometry(22, 13),
+      new MeshStandardMaterial({ color: look.team, side: DoubleSide }),
+    );
+    f.rotation.x = Math.PI / 2;
+    f.position.set(x - 11, y, top - 6);
+    c.root.add(f);
+  } else {
+    const s = new Mesh(
+      new OctahedronGeometry(6, 0),
+      new MeshBasicMaterial({ color: 0xffd23f, toneMapped: false }),
+    );
+    s.position.set(x, y, top + 5);
+    c.root.add(s);
+  }
 }

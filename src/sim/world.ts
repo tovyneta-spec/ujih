@@ -36,6 +36,8 @@ export type SimEvent =
   | { type: 'respawn'; carId: number }
   | { type: 'bump'; attackerId: number; victimId: number }
   | { type: 'chat'; carId: number; text: string }
+  | { type: 'wallHit'; carId: number; speed: number }
+  | { type: 'ballBounce'; speed: number; x: number; y: number; z: number }
   | { type: 'countdown'; n: number }
   | { type: 'go' }
   | { type: 'kickoffReset' }
@@ -64,6 +66,10 @@ export interface WorldSnapshot {
   bumps: Record<string, number>;
 }
 
+/** Velocidad normal mínima (uu/s) para emitir eventos de impacto contra el estadio. */
+const IMPACT_MIN_CAR = 450;
+const IMPACT_MIN_BALL = 350;
+
 /** Estado completo de la simulación. Determinista, sin dependencias de DOM ni de Three.js. */
 export class World {
   tick = 0;
@@ -84,6 +90,7 @@ export class World {
   rules: CarRules = { ...DEFAULT_RULES };
   private contact: CarCarContact = { normal: new Vec3(), point: new Vec3(), penetration: 0 };
   private bumpTicks = new Map<number, number>();
+  private lastBounceTick = -100;
   private preA = new Vec3();
   private preB = new Vec3();
 
@@ -193,9 +200,16 @@ export class World {
     }
     this.ball.integrate(dt);
 
-    for (const car of this.cars) if (!car.demolished) resolveCarArena(car);
+    for (const car of this.cars) {
+      if (car.demolished) continue;
+      const hit = resolveCarArena(car);
+      if (hit > IMPACT_MIN_CAR && this.tick - car.lastWallHitTick > 12) {
+        car.lastWallHitTick = this.tick;
+        this.events.push({ type: 'wallHit', carId: car.id, speed: hit });
+      }
+    }
     this.collideCars();
-    this.ball.collideArena();
+    this.noteBounce(this.ball.collideArena());
     for (const car of this.cars) {
       if (car.demolished) continue;
       if (collideBallCar(this.ball, car, this.tick, this.hit)) {
@@ -214,7 +228,7 @@ export class World {
         }
       }
     }
-    this.ball.collideArena();
+    this.noteBounce(this.ball.collideArena());
 
     updatePads(this.pads, dt, this.cars, this.pickups, this.rules.boostMode !== 'none');
     for (const pad of this.pickups) {
@@ -231,6 +245,14 @@ export class World {
     if (scorer !== -1 && this.match.acceptsGoals) {
       this.events.push({ type: 'goal', team: scorer });
       this.match.onGoal(this, scorer);
+    }
+  }
+
+  private noteBounce(impact: number): void {
+    if (impact > IMPACT_MIN_BALL && this.tick - this.lastBounceTick > 8) {
+      this.lastBounceTick = this.tick;
+      const p = this.ball.pos;
+      this.events.push({ type: 'ballBounce', speed: impact, x: p.x, y: p.y, z: p.z });
     }
   }
 

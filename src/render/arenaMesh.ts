@@ -15,6 +15,7 @@ import {
   Vector3,
 } from 'three';
 import { ARENA } from '../config';
+import type { ThemeSpec } from '../config';
 import { makeFloorTexture, makeNetTexture, makeWallTexture } from './textures';
 
 const HX = ARENA.halfWidth;
@@ -31,13 +32,13 @@ export const TEAM_COLORS = {
   orange: new Color(0xff7a1f),
 };
 
-interface Col {
+export interface Col {
   x: number;
   y: number;
   nx: number;
   ny: number;
 }
-interface Strip {
+export interface Strip {
   cols: Col[];
   clipped: boolean;
 }
@@ -49,7 +50,7 @@ interface ProfilePoint {
 }
 
 /** Contorno de la planta (rectángulo de esquinas redondeadas) dividido en tiras; recorta el hueco de las porterías. */
-function perimeter(): Strip[] {
+export function perimeter(): Strip[] {
   const strips: Strip[] = [];
   const line = (
     x0: number,
@@ -131,13 +132,17 @@ function profile(clipped: boolean): ProfilePoint[] {
 const blue = TEAM_COLORS.blue;
 const orange = TEAM_COLORS.orange;
 const tint = new Color();
+const cBlue = new Color();
+const cOrange = new Color();
 function teamTint(y: number, base: number): Color {
   const t = Math.min(1, Math.max(0, (y + 900) / 1800));
-  tint.copy(blue).lerp(orange, t);
+  tint.copy(cBlue).lerp(cOrange, t);
   return tint.multiplyScalar(base);
 }
 
-function wallGeometry(): BufferGeometry {
+function wallGeometry(theme: ThemeSpec): BufferGeometry {
+  cBlue.set(theme.wallBlue);
+  cOrange.set(theme.wallOrange);
   const pos: number[] = [];
   const nor: number[] = [];
   const col: number[] = [];
@@ -158,7 +163,12 @@ function wallGeometry(): BufferGeometry {
         nor.push(c.nx * p.nu, c.ny * p.nu, p.nz);
         const ramp = p.z < RR || p.z > H - RR ? 0.55 : 1;
         const k = teamTint(c.y, ramp * (0.7 + 0.3 * (1 - Math.abs(p.z - H * 0.4) / H)));
-        col.push(k.r, k.g, k.b);
+        // Opaco abajo y en las rampas; semitransparente arriba para ver las gradas.
+        const alpha =
+          p.z < 300 || p.z > H - RR
+            ? 0.96
+            : Math.max(theme.wallOpacity, 0.96 - ((p.z - 300) / 500) * (0.96 - theme.wallOpacity));
+        col.push(k.r, k.g, k.b, alpha);
         uv.push(s / 700, p.z / 700);
       }
       if (i > 0) {
@@ -173,7 +183,7 @@ function wallGeometry(): BufferGeometry {
   const g = new BufferGeometry();
   g.setAttribute('position', new Float32BufferAttribute(pos, 3));
   g.setAttribute('normal', new Float32BufferAttribute(nor, 3));
-  g.setAttribute('color', new Float32BufferAttribute(col, 3));
+  g.setAttribute('color', new Float32BufferAttribute(col, 4));
   g.setAttribute('uv', new Float32BufferAttribute(uv, 2));
   g.setIndex(idx);
   return g;
@@ -238,12 +248,12 @@ export interface ArenaVisual {
 }
 
 /** Construye el estadio en el espacio de la simulación (z arriba). */
-export function buildArena(): ArenaVisual {
+export function buildArena(theme: ThemeSpec): ArenaVisual {
   const group = new Group();
   group.name = 'arena';
 
   const wallTex = makeWallTexture();
-  const floorTex = makeFloorTexture();
+  const floorTex = makeFloorTexture(theme);
   const netTex = makeNetTexture();
 
   const wallMat = new MeshStandardMaterial({
@@ -252,10 +262,11 @@ export function buildArena(): ArenaVisual {
     roughness: 0.55,
     metalness: 0.1,
     side: DoubleSide,
-    emissive: new Color(0x16203a),
+    transparent: true,
+    emissive: new Color(theme.wallEmissive),
     emissiveIntensity: 1,
   });
-  group.add(new Mesh(wallGeometry(), wallMat));
+  group.add(new Mesh(wallGeometry(theme), wallMat));
 
   const floorMat = new MeshStandardMaterial({
     map: floorTex,
@@ -272,9 +283,9 @@ export function buildArena(): ArenaVisual {
 
   const ceilMat = new MeshStandardMaterial({
     map: wallTex,
-    color: 0x6b7391,
+    color: theme.ceiling,
     roughness: 0.7,
-    emissive: new Color(0x0c1226),
+    emissive: new Color(theme.ceilingEmissive),
     side: DoubleSide,
   });
   group.add(
@@ -345,7 +356,7 @@ export function buildArena(): ArenaVisual {
   // Fondo exterior oscuro visible a través de las porterías.
   const outer = new Mesh(
     new SphereGeometry(18000, 16, 12),
-    new MeshBasicMaterial({ color: 0x060914, side: BackSide, depthWrite: false }),
+    new MeshBasicMaterial({ color: theme.background, side: BackSide, depthWrite: false }),
   );
   group.add(outer);
 

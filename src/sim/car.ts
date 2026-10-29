@@ -106,6 +106,7 @@ export class Car {
 
   // Estadísticas de contacto.
   lastBallTouchTick = -1;
+  lastWallHitTick = -100;
   lastPadPickup: BoostPad | null = null;
   /** Reservado para las demoliciones (F2): un coche destruido no interactúa. */
   demolished = false;

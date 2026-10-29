@@ -1,6 +1,20 @@
 // Menús: principal, partida rápida, personalizada, créditos y pausa. DOM puro sobre el canvas.
-import { BOT_PROFILES, DEFAULT_MUTATORS } from '../config';
-import type { BotLevel, Mutators } from '../config';
+import {
+  ANTENNAS,
+  BODY_IDS,
+  BOT_PROFILES,
+  CAR_BODIES,
+  DECALS,
+  DEFAULT_GARAGE,
+  DEFAULT_MUTATORS,
+  EXPLOSIONS,
+  PALETTE,
+  TRAILS,
+  WHEEL_STYLES,
+} from '../config';
+import type { BotLevel, GarageSettings, GoalExplosion, Mutators } from '../config';
+import { loadAudio, loadGarage, sanitizeGarage, saveGarage } from '../storage';
+import type { AudioSettings } from '../storage';
 import type { GameSetup } from './urlConfig';
 
 export interface MenuCallbacks {
@@ -9,9 +23,17 @@ export interface MenuCallbacks {
   resume(): void;
   restart(): void;
   abandon(): void;
+  /** Entra en el garaje (vista previa 3D) con los ajustes actuales. */
+  garageEnter(g: GarageSettings): void;
+  garageChange(g: GarageSettings): void;
+  garageExplosion(style: GoalExplosion): void;
+  garageExit(): void;
+  audioChange(a: AudioSettings): void;
+  /** Sonidos de interfaz. */
+  ui(kind: 'click' | 'hover' | 'back'): void;
 }
 
-type Screen = 'main' | 'quick' | 'custom' | 'credits' | 'pause';
+type Screen = 'main' | 'quick' | 'custom' | 'credits' | 'pause' | 'garage' | 'audio';
 
 interface Option {
   value: string | number | boolean;
@@ -209,6 +231,9 @@ export class Menus {
   private screen: Screen | null = null;
   private saved: Saved = load();
   private practicePause = false;
+  private garage: GarageSettings = loadGarage();
+  private audio: AudioSettings = loadAudio();
+  private lastHover: HTMLButtonElement | null = null;
 
   constructor(
     parent: HTMLElement,
@@ -219,6 +244,15 @@ export class Menus {
     this.root.hidden = true;
     parent.appendChild(this.root);
     window.addEventListener('keydown', (e) => this.onKey(e));
+    // Sonidos de interfaz por delegación.
+    this.root.addEventListener('click', (e) => {
+      if ((e.target as HTMLElement).closest('button')) this.cb.ui('click');
+    });
+    this.root.addEventListener('mouseover', (e) => {
+      const b = (e.target as HTMLElement).closest('button');
+      if (b && !b.disabled && b !== this.lastHover) this.cb.ui('hover');
+      this.lastHover = b;
+    });
   }
 
   get visible(): boolean {
@@ -249,6 +283,7 @@ export class Menus {
     if (e.code === 'Escape') {
       e.preventDefault();
       if (this.screen === 'pause') this.cb.resume();
+      else if (this.screen === 'garage') this.leaveGarage();
       else if (this.screen !== 'main') this.open('main');
     }
   }
@@ -267,10 +302,15 @@ export class Menus {
         return this.renderCredits();
       case 'pause':
         return this.renderPause();
+      case 'garage':
+        return this.renderGarage();
+      case 'audio':
+        return this.renderAudio();
     }
   }
 
   private render(html: string): HTMLElement {
+    this.root.classList.toggle('garage', this.screen === 'garage');
     this.root.innerHTML = `<div class="panel">${html}</div>`;
     return this.root.querySelector('.panel') as HTMLElement;
   }
@@ -287,14 +327,19 @@ export class Menus {
         <button class="btn primary" data-go="quick">Jugar</button>
         <button class="btn" data-go="custom">Partida personalizada</button>
         <button class="btn" data-go="practice">Práctica libre</button>
-        <button class="btn" disabled title="Próximamente">Garaje <small>próximamente</small></button>
-        <button class="btn" disabled title="Próximamente">Ajustes <small>próximamente</small></button>
+        <button class="btn" data-go="garage">Garaje</button>
+        <button class="btn" data-go="audio">Audio</button>
         <button class="btn" data-go="credits">Créditos</button>
       </div>
       <p class="foot">Juego original inspirado en las mecánicas del modo Soccar</p>`);
     this.on('[data-go=quick]', () => this.open('quick'));
     this.on('[data-go=custom]', () => this.open('custom'));
     this.on('[data-go=credits]', () => this.open('credits'));
+    this.on('[data-go=garage]', () => {
+      this.open('garage');
+      this.cb.garageEnter(this.garage);
+    });
+    this.on('[data-go=audio]', () => this.open('audio'));
     this.on('[data-go=practice]', () => this.cb.practice());
   }
 
@@ -405,6 +450,141 @@ export class Menus {
     });
   }
 
+  private leaveGarage(): void {
+    saveGarage(this.garage);
+    this.cb.garageExit();
+    this.open('main');
+  }
+
+  private swatches(name: 'primary' | 'secondary', current: string): string {
+    const items = PALETTE.map(
+      (c) =>
+        `<button type="button" class="sw ${c === current ? 'on' : ''}" data-sw="${name}" data-c="${c}" style="background:${c}" aria-label="${c}"></button>`,
+    ).join('');
+    return `<div class="swatches">${items}<input type="color" data-pick="${name}" value="${current}" aria-label="Color personalizado" /></div>`;
+  }
+
+  private renderGarage(): void {
+    const g = this.garage;
+    const seg = (
+      name: string,
+      label: string,
+      entries: [string, string][],
+      current: string,
+    ): string =>
+      this.segment(
+        name,
+        label,
+        entries.map(([value, text]) => ({ value, label: text })),
+        current,
+      );
+    this.render(`
+      <h2>Garaje</h2>
+      <label class="field"><span>Nombre del jugador</span><input type="text" maxlength="16" data-name value="${g.name}" /></label>
+      ${seg(
+        'body',
+        'Carrocería',
+        BODY_IDS.map((id) => [id, CAR_BODIES[id].name]),
+        g.body,
+      )}
+      <div class="row"><span>Color primario</span>${this.swatches('primary', g.primary)}</div>
+      <div class="row"><span>Color secundario</span>${this.swatches('secondary', g.secondary)}</div>
+      ${seg('wheels', 'Ruedas', Object.entries(WHEEL_STYLES), g.wheels)}
+      ${seg(
+        'trail',
+        'Estela de turbo',
+        Object.entries(TRAILS).map(([k, v]) => [k, v.name]),
+        g.trail,
+      )}
+      ${seg('explosion', 'Explosión de gol', Object.entries(EXPLOSIONS), g.explosion)}
+      ${seg('antenna', 'Antena', Object.entries(ANTENNAS), g.antenna)}
+      ${seg('decal', 'Calcomanía', Object.entries(DECALS), g.decal)}
+      <div class="buttons">
+        <button class="btn" data-go="reset">Restablecer</button>
+        <button class="btn" data-go="boom">Probar explosión</button>
+        <button class="btn primary" data-go="back">Guardar y volver</button>
+      </div>`);
+    const apply = (patch: Partial<GarageSettings>): void => {
+      this.garage = sanitizeGarage({ ...this.garage, ...patch });
+      saveGarage(this.garage);
+      this.cb.garageChange(this.garage);
+    };
+    this.root.querySelectorAll<HTMLElement>('.seg').forEach((b) =>
+      b.addEventListener('click', () => {
+        const name = b.dataset.seg as string;
+        this.root
+          .querySelectorAll<HTMLElement>(`.seg[data-seg=${name}]`)
+          .forEach((x) => x.classList.toggle('on', x === b));
+        apply({ [name]: b.dataset.v } as Partial<GarageSettings>);
+      }),
+    );
+    this.root.querySelectorAll<HTMLElement>('.sw').forEach((b) =>
+      b.addEventListener('click', () => {
+        const name = b.dataset.sw as 'primary' | 'secondary';
+        const input = this.root.querySelector<HTMLInputElement>(`input[data-pick=${name}]`);
+        if (input) input.value = b.dataset.c as string;
+        this.root
+          .querySelectorAll<HTMLElement>(`.sw[data-sw=${name}]`)
+          .forEach((x) => x.classList.toggle('on', x === b));
+        apply({ [name]: b.dataset.c } as Partial<GarageSettings>);
+      }),
+    );
+    this.root
+      .querySelectorAll<HTMLInputElement>('input[data-pick]')
+      .forEach((i) =>
+        i.addEventListener('input', () =>
+          apply({ [i.dataset.pick as string]: i.value } as Partial<GarageSettings>),
+        ),
+      );
+    this.root
+      .querySelector<HTMLInputElement>('input[data-name]')
+      ?.addEventListener('change', (e) => {
+        apply({ name: (e.target as HTMLInputElement).value });
+      });
+    this.on('[data-go=boom]', () => this.cb.garageExplosion(this.garage.explosion));
+    this.on('[data-go=reset]', () => {
+      this.garage = { ...DEFAULT_GARAGE };
+      saveGarage(this.garage);
+      this.cb.garageChange(this.garage);
+      this.renderGarage();
+    });
+    this.on('[data-go=back]', () => this.leaveGarage());
+  }
+
+  private renderAudio(): void {
+    const a = this.audio;
+    const slider = (key: 'master' | 'sfx' | 'music', label: string): string =>
+      `<label class="field slider"><span>${label} <b data-val="${key}">${Math.round(a[key] * 100)}</b></span>
+        <input type="range" min="0" max="100" value="${Math.round(a[key] * 100)}" data-vol="${key}" /></label>`;
+    this.render(`
+      <h2>Audio</h2>
+      ${slider('master', 'Volumen general')}
+      ${slider('sfx', 'Efectos')}
+      ${slider('music', 'Música')}
+      <label class="check"><input type="checkbox" data-music ${a.musicOn ? 'checked' : ''} /> Música de fondo</label>
+      <div class="buttons">
+        <button class="btn" data-go="test">Probar sonido</button>
+        <button class="btn primary" data-go="back">Volver</button>
+      </div>`);
+    this.root.querySelectorAll<HTMLInputElement>('input[data-vol]').forEach((i) =>
+      i.addEventListener('input', () => {
+        const key = i.dataset.vol as 'master' | 'sfx' | 'music';
+        this.audio = { ...this.audio, [key]: Number(i.value) / 100 };
+        const out = this.root.querySelector(`[data-val=${key}]`);
+        if (out) out.textContent = i.value;
+        this.cb.audioChange(this.audio);
+      }),
+    );
+    this.root
+      .querySelector<HTMLInputElement>('input[data-music]')
+      ?.addEventListener('change', (e) => {
+        this.audio = { ...this.audio, musicOn: (e.target as HTMLInputElement).checked };
+        this.cb.audioChange(this.audio);
+      });
+    this.on('[data-go=test]', () => this.cb.ui('click'));
+    this.on('[data-go=back]', () => this.open('main'));
+  }
+
   private renderCredits(): void {
     this.render(`
       <h2>Créditos</h2>
@@ -412,7 +592,7 @@ export class Menus {
         <p><b>Turbo Arena</b> es un juego original inspirado en las mecánicas de un deporte de coches con cohetes.</p>
         <p>Todos los modelos, texturas y efectos se generan por código; no incluye assets de terceros y no usa
         nombres, logos, modelos, texturas, sonidos ni música de Rocket League, Psyonix ni Epic Games.</p>
-        <p>Hecho con <b>three.js</b> (MIT), TypeScript y Vite. Física, bots y reglas: simulación propia.</p>
+        <p>Hecho con <b>three.js</b> (MIT), TypeScript y Vite. Física, bots, reglas y audio (WebAudio): propios.</p>
         <p>Detalle completo en <code>CREDITS.md</code>.</p>
       </div>
       <div class="buttons"><button class="btn primary" data-go="back">Volver</button></div>`);

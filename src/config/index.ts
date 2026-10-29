@@ -6,3 +6,5 @@ export * from './controls';
 export * from './match';
 export * from './bots';
 export * from './mutators';
+export * from './themes';
+export * from './garage';

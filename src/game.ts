@@ -1,6 +1,10 @@
 // Controlador del juego: estados (menú / jugando / pausa), partidas, repeticiones y bucle principal.
 import { BALL, BOT_PROFILES, PHYSICS, QUICK_CHAT, resolveMutators } from './config';
-import type { Action } from './config';
+import type { Action, GarageSettings, GoalExplosion, Theme } from './config';
+import { AudioEngine } from './audio';
+import type { Listener } from './audio';
+import { botBody, botLook, playerLook } from './render/looks';
+import { loadAudio, loadGarage } from './storage';
 import type { ResolvedMutators } from './config';
 import { GameLoop } from './core/loop';
 import { KeyboardInput } from './input/keyboard';
@@ -10,6 +14,7 @@ import type { RenderView } from './render/gameRenderer';
 import { GameRenderer } from './render/gameRenderer';
 import { BotManager, Series, World } from './sim';
 import type { Car, SimEvent } from './sim';
+import { Vector3 } from 'three';
 import { Hud } from './ui/hud';
 import { HudExtras } from './ui/hudExtras';
 import { MatchHud } from './ui/matchHud';
@@ -17,7 +22,7 @@ import type { EndAction } from './ui/matchHud';
 import { Menus } from './ui/menus';
 import type { GameSetup } from './ui/urlConfig';
 
-type State = 'menu' | 'playing' | 'paused';
+type State = 'menu' | 'playing' | 'paused' | 'garage';
 
 /** Segundos de juego previos al gol / posteriores que se muestran en la repetición. */
 const REPLAY_BEFORE = 5;
@@ -49,6 +54,9 @@ export class Game {
   private goalTimer = 0;
   private replayShown = false;
   private lastChat = -10;
+  private audio = new AudioEngine(loadAudio());
+  private garage: GarageSettings = loadGarage();
+  private listener: Listener = { x: 0, y: 0, z: 0, rx: 1, ry: 0, rz: 0 };
 
   constructor(
     private root: HTMLElement,
@@ -67,7 +75,17 @@ export class Game {
       resume: () => this.resume(),
       restart: () => this.rematch(),
       abandon: () => this.toMenu(),
+      garageEnter: (g) => this.enterGarage(g),
+      garageChange: (g) => this.changeGarage(g),
+      garageExplosion: (style) => this.renderer.previewExplosion(style),
+      garageExit: () => this.exitGarage(),
+      audioChange: (a) => this.audio.setSettings(a),
+      ui: (k) => this.audio.ui(k),
     });
+    // Política de autoplay: el audio arranca con la primera interacción.
+    const unlock = (): void => this.audio.unlock();
+    window.addEventListener('pointerdown', unlock);
+    window.addEventListener('keydown', unlock);
     this.world = new World(1);
     this.bots = new BotManager(this.world);
     this.player = new ReplayPlayer(this.recorder, createRenderFrame(0));
@@ -99,7 +117,7 @@ export class Game {
   boot(startup: GameSetup | null): void {
     if (startup) {
       if (startup.mode === 'match') this.startMatch(startup);
-      else this.startPractice();
+      else this.startPractice(startup.mutators.theme);
     } else this.toMenu();
     this.loop.start();
     (window as unknown as { __game: unknown }).__game = this;
@@ -110,8 +128,8 @@ export class Game {
   private background(): void {
     // Partida de demostración entre bots detrás de los menús.
     const w = new World(Date.now() & 0xffff);
-    w.addCar(0);
-    w.addCar(1);
+    w.addCar(0, botBody(0));
+    w.addCar(1, botBody(1));
     const bots = new BotManager(w, 42);
     bots.add(0, 'pro');
     bots.add(1, 'pro');
@@ -120,13 +138,16 @@ export class Game {
     this.bots = bots;
     this.human = null;
     this.isMatch = true;
-    this.renderer.setWorld(w, 0);
+    this.renderer.setTheme('night');
+    this.renderer.setWorld(w, 0, (id) => botLook(id, w.cars[id].team));
     this.renderer.setBallScale(1);
     this.recorder.clear();
     this.player.stop();
+    this.audio.resetVoices();
   }
 
   private toMenu(): void {
+    this.renderer.clearPreview();
     this.background();
     this.state = 'menu';
     this.loop.paused = false;
@@ -160,19 +181,19 @@ export class Game {
     this.series = new Series(setup.mutators.series);
 
     const world = new World(Date.now() & 0xffff);
-    const human = world.addCar(this.humanTeam, 'octane');
+    const human = world.addCar(this.humanTeam, this.garage.body);
     const bots = new BotManager(world, Date.now() & 0xffff);
-    const names = ['Tú'];
+    const names = [this.garage.name];
     const level = BOT_PROFILES[r.botLevel].name;
     const label = (t: 0 | 1): string => (t === 0 ? 'Azul' : 'Naranja');
     for (let i = 1; i < r.perTeam; i++) {
-      const c = world.addCar(this.humanTeam, 'octane');
+      const c = world.addCar(this.humanTeam, botBody(world.cars.length));
       bots.add(c.id, r.botLevel);
       names.push(`${label(this.humanTeam)} ${i + 1} (${level})`);
     }
     const other = this.humanTeam === 0 ? 1 : 0;
     for (let i = 0; i < r.perTeam; i++) {
-      const c = world.addCar(other, 'octane');
+      const c = world.addCar(other, botBody(world.cars.length));
       bots.add(c.id, r.botLevel);
       names.push(`${label(other)} ${i + 1} (${level})`);
     }
@@ -182,7 +203,14 @@ export class Game {
     this.world = world;
     this.bots = bots;
     this.human = human;
-    this.renderer.setWorld(world, human.id);
+    this.renderer.setTheme(r.theme);
+    this.renderer.setWorld(
+      world,
+      human.id,
+      (id) => this.lookOf(world, id),
+      (id) => this.explosionOf(world, id),
+    );
+    this.audio.resetVoices();
     this.renderer.setBallScale(r.ball.radius / BALL.radius);
     this.player = new ReplayPlayer(this.recorder, createRenderFrame(world.cars.length));
     this.matchHud.names = names;
@@ -199,24 +227,65 @@ export class Game {
     this.loop.timeScale = r.timeScale;
   }
 
-  private startPractice(): void {
+  private startPractice(theme: Theme = 'day'): void {
     this.setup = null;
     this.resolved = null;
     this.isMatch = false;
     const world = new World(Date.now() & 0xffff);
-    const human = world.addCar(0, 'octane');
+    const human = world.addCar(0, this.garage.body);
     world.resetKickoff();
     this.world = world;
     this.bots = new BotManager(world);
     this.human = human;
     this.humanTeam = 0;
-    this.renderer.setWorld(world, human.id);
+    this.renderer.setTheme(theme);
+    this.renderer.setWorld(
+      world,
+      human.id,
+      (id) => this.lookOf(world, id),
+      (id) => this.explosionOf(world, id),
+    );
+    this.audio.resetVoices();
     this.renderer.setBallScale(1);
     this.player = new ReplayPlayer(this.recorder, createRenderFrame(1));
     this.beginGame();
     this.matchHud.setVisible(false);
     this.extras.setVisible(false);
     this.loop.timeScale = 1;
+  }
+
+  /** Apariencia: el coche del jugador usa el garaje; los demás, su equipo. */
+  private lookOf(world: World, id: number): ReturnType<typeof playerLook> {
+    const car = world.cars[id];
+    return this.human && id === this.human.id
+      ? playerLook(this.garage, car.team)
+      : botLook(id, car.team);
+  }
+
+  private explosionOf(world: World, id: number): GoalExplosion {
+    return this.human && id === this.human.id
+      ? this.garage.explosion
+      : (['classic', 'fireworks', 'confetti'] as const)[(id + world.cars[id].team) % 3];
+  }
+
+  // ------------------------------------------------------------------ garaje
+
+  private enterGarage(g: GarageSettings): void {
+    this.garage = g;
+    this.state = 'garage';
+    this.keyboard.enabled = false;
+    this.renderer.setPreview(g.body, playerLook(g, 0));
+  }
+
+  private changeGarage(g: GarageSettings): void {
+    this.garage = g;
+    this.renderer.setPreview(g.body, playerLook(g, 0));
+  }
+
+  private exitGarage(): void {
+    this.garage = loadGarage();
+    this.renderer.clearPreview();
+    this.state = 'menu';
   }
 
   private pause(): void {
@@ -286,7 +355,9 @@ export class Game {
   private handleEvent(e: SimEvent): void {
     const world = this.world;
     this.bots.onEvent(e);
-    if (this.state === 'menu') return;
+    if (this.state === 'menu' || this.state === 'garage') return;
+    this.renderer.onEvent(e);
+    this.audio.onEvent(e, world, this.listener);
     if (!this.isMatch) {
       if (e.type === 'goal' && this.goalTimer <= 0) this.goalTimer = 2.5;
       return;
@@ -339,6 +410,7 @@ export class Game {
   }
 
   private fixedUpdate(dt: number): void {
+    if (this.state === 'garage') return;
     const world = this.world;
     this.bots.update();
     if (this.human && this.state === 'playing')
@@ -357,9 +429,16 @@ export class Game {
 
   private frame(alpha: number, dt: number): void {
     this.menuTime += dt;
+    if (this.state === 'garage') {
+      this.hudRoot.classList.add('hud-hidden');
+      this.renderer.renderPreview(dt);
+      this.audio.silenceCars();
+      return;
+    }
     if (this.state === 'menu') {
       this.hudRoot.classList.add('hud-hidden');
       this.renderer.render(alpha, dt, { pose: this.cam.orbit(this.menuTime) });
+      this.audio.silenceCars();
       return;
     }
 
@@ -409,6 +488,8 @@ export class Game {
       };
     }
     this.renderer.render(alpha, dt, view);
+    this.updateListener();
+    this.audio.update(world, this.listener, this.state === 'playing' && !inReplay, dt);
 
     this.hudRoot.classList.toggle('hud-hidden', inReplay);
     const human = this.human;
@@ -427,6 +508,27 @@ export class Game {
     }
     if (!this.debugEl.hidden && human) this.updateDebug(human);
   }
+
+  /** Oyente de audio: posición y eje derecho de la cámara, en coordenadas de la simulación. */
+  private updateListener(): void {
+    const cam = this.renderer.camera;
+    const l = this.listener;
+    l.x = cam.position.x;
+    l.y = -cam.position.z;
+    l.z = cam.position.y;
+    cam.getWorldDirection(this.fwdTmp);
+    // Derecha de la cámara (Three): forward × up.
+    const fx = this.fwdTmp.x;
+    const fz = this.fwdTmp.z;
+    const len = Math.hypot(fx, fz) || 1;
+    const rxT = -fz / len;
+    const rzT = fx / len;
+    l.rx = rxT;
+    l.ry = -rzT;
+    l.rz = 0;
+  }
+
+  private fwdTmp = new Vector3();
 
   private updateDebug(car: Car): void {
     const s = this.loop.stats;

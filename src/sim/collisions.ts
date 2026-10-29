@@ -39,8 +39,9 @@ function applyCarImpulse(car: Car, rr: Vec3, dir: Vec3, j: number): void {
 }
 
 /** Resuelve la colisión de las 8 esquinas de la hitbox contra el estadio. */
-export function resolveCarArena(car: Car): void {
+export function resolveCarArena(car: Car): number {
   const wheelsRoll = car.grounded;
+  let impact = 0;
   for (let iter = 0; iter < 3; iter++) {
     for (let i = 0; i < 8; i++) {
       car.cornerWorld(i, corner);
@@ -54,6 +55,7 @@ export function resolveCarArena(car: Car): void {
       vp.copy(car.vel).add(tmp);
       const vn = vp.dot(n);
       if (vn >= 0) continue;
+      impact = Math.max(impact, -vn);
 
       const e = vn < -80 ? CAR.bodyRestitution : 0;
       const jn = (-(1 + e) * vn) / carInvEffMass(car, r, n);
@@ -72,6 +74,7 @@ export function resolveCarArena(car: Car): void {
       }
     }
   }
+  return impact;
 }
 
 export interface BallCarHit {

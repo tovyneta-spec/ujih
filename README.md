@@ -6,17 +6,25 @@ TypeScript estricto + Vite + Three.js (WebGL2) con una simulación física propi
 > Juego original: no usa nombres, logos, modelos, texturas ni sonidos de Psyonix/Epic Games.
 > Todos los assets se generan por código (ver `CREDITS.md`).
 
-**Estado: Fase F4 (parcial)** (ver [Plan de fases](#plan-de-fases)). Menú principal, práctica libre y
-**partidas completas contra bots** en 1v1, 2v2 y 3v3 (Azul vs Naranja), con reglas Soccar (saque 3-2-1, reloj,
-goles con goleador y velocidad, prórroga con gol de oro, demoliciones, puntuación), 3 niveles de bots, partida
-personalizada con mutadores, **repetición de cada gol** con cámaras cinemáticas y pantalla de resultados.
-De F4 quedan para otra entrega: ajustes persistentes y reasignación de teclas, cámara con ajustes, mando y táctil.
+**Estado: Fase F5.** Menú principal, práctica libre y **partidas completas contra bots** en 1v1, 2v2 y 3v3
+(Azul vs Naranja), con reglas Soccar (saque 3-2-1, reloj, goles con goleador y velocidad, prórroga con gol de
+oro, demoliciones, puntuación), 3 niveles de bots, partida personalizada con mutadores, repetición de cada gol
+con cámaras cinemáticas y pantalla de resultados. Con F5 se añaden: **3 temas de estadio** (día, noche, neón),
+**bloom y reflejos**, gradas con **público** que reacciona a los goles, **efectos de partículas**, **audio
+sintetizado** con WebAudio, y un **garaje** con 6 carrocerías y personalización.
+
+> **Alcance del proyecto.** Quedan **fuera** (no se implementarán): pantalla de ajustes con reasignación de
+> teclas, ajustes de cámara, mando (Gamepad) y táctil, y mini-tutorial. El teclado usa las teclas por defecto de
+> `src/config/controls.ts`.
 
 ## Menús y pantallas
 
 - **Menú principal**: Jugar (formato, equipo, nivel de bots), Partida personalizada (todos los mutadores),
-  Práctica libre, Créditos. _Garaje_ y _Ajustes_ aparecen deshabilitados hasta sus fases. La última
-  configuración se recuerda en `localStorage`.
+  Práctica libre, **Garaje**, **Audio** y Créditos. La última configuración se recuerda en `localStorage`.
+- **Garaje**: vista previa 3D giratoria con cambios en vivo. Carrocería (Cometa, Dominador, Tablón, Estallido,
+  Híbrido, Mercenario; cada una con su hitbox), colores primario y secundario, 5 estilos de ruedas, 5 estelas de
+  turbo, 3 explosiones de gol, antena, calcomanía y nombre. Se guarda en `localStorage`.
+- **Audio**: volumen general, efectos y música (con interruptor). El audio arranca tras la primera interacción.
 - **Pausa** (`Esc`, o automática al perder el foco): Continuar, Reiniciar partida, Abandonar.
 - **Repetición**: tras cada gol y 2,5 s de juego libre se reproducen ≈7 s con tres planos (seguimiento del
   goleador, órbita sobre la pelota y cámara de línea de gol). `Espacio` o clic para saltarla.
@@ -113,7 +121,7 @@ El juego sólo captura el teclado cuando tiene el foco (clic dentro) y bloquea e
 | Pausa                    | `Esc`                                                 |
 | Depuración               | `F3` (hitboxes, contactos de ruedas, velocidad, FPS)  |
 
-Las teclas por defecto están en `src/config/controls.ts` (la reasignación desde Ajustes llega en una fase posterior).
+Las teclas están en `src/config/controls.ts`.
 
 ## Estructura del proyecto
 
@@ -131,8 +139,11 @@ src/
     match.ts       reglas: fases, reloj, goles, prórroga, puntuación, estadísticas
     world.ts       estado, paso, eventos, snapshots (serializable)
     input.ts       CarInput: la única estructura de entrada
-  render/   Three.js: estadio procedural, coche, pelota, pads, cámara, depuración
-  input/    teclado (rampa digital); mando y táctil pendientes
+  render/   Three.js: estadio, gradas y público, coches, pelota, pads, partículas/efectos, post-proceso,
+            cámaras (juego y cinemáticas), garaje
+  input/    teclado (dirección con rampa; gas y ejes aéreos digitales)
+  audio/    motor de audio WebAudio sintetizado + funciones puras (dsp.ts)
+  storage/  garaje y audio en localStorage (con saneado de datos)
   core/     bucle de paso fijo con acumulador + render interpolado
   replay/   grabador circular de estados + reproductor interpolado (sin DOM)
   ui/       HUD, menús y pantallas en HTML/CSS

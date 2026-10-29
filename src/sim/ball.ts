@@ -47,11 +47,12 @@ export class Ball {
   }
 
   /** Colisión esfera-estadio con rebote y fricción (genera giro). */
-  collideArena(): void {
+  collideArena(): number {
+    let impact = 0;
     for (let i = 0; i < 2; i++) {
       const depth = arenaQuery(this.pos.x, this.pos.y, this.pos.z, n);
       const pen = this.radius - depth;
-      if (pen <= 0) return;
+      if (pen <= 0) return impact;
       this.pos.addScaled(n, pen);
 
       // Velocidad del punto de contacto: v + ω × r, con r = -n·R.
@@ -60,6 +61,7 @@ export class Ball {
       vrel.copy(this.vel).add(tmp);
       const vn = vrel.dot(n);
       if (vn >= 0) continue;
+      impact = Math.max(impact, -vn);
 
       const e = vn < -BALL.restitutionThreshold ? this.restitution : 0;
       const jn = -(1 + e) * vn * this.mass;
@@ -79,5 +81,6 @@ export class Ball {
         this.angVel.add(torque);
       }
     }
+    return impact;
   }
 }

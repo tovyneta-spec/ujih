@@ -1,6 +1,7 @@
 // Texturas generadas por código (sin assets de terceros).
 import { CanvasTexture, LinearFilter, RepeatWrapping, SRGBColorSpace } from 'three';
 import { ARENA } from '../config';
+import type { ThemeSpec } from '../config';
 
 function canvas(w: number, h: number): [HTMLCanvasElement, CanvasRenderingContext2D] {
   const c = document.createElement('canvas');
@@ -21,7 +22,7 @@ function finish(c: HTMLCanvasElement, repeat = false, anisotropy = 4): CanvasTex
 }
 
 /** Suelo con franjas, líneas de campo, círculo central, áreas y marcas de saque. */
-export function makeFloorTexture(): CanvasTexture {
+export function makeFloorTexture(theme: ThemeSpec): CanvasTexture {
   const W = 1024;
   const H = 1280;
   const k = W / (ARENA.halfWidth * 2);
@@ -31,22 +32,22 @@ export function makeFloorTexture(): CanvasTexture {
 
   const stripes = 16;
   for (let i = 0; i < stripes; i++) {
-    g.fillStyle = i % 2 === 0 ? '#1d6b46' : '#1a6040';
+    g.fillStyle = i % 2 === 0 ? theme.floorA : theme.floorB;
     g.fillRect(0, (H / stripes) * i, W, H / stripes + 1);
   }
   // Mitades teñidas por equipo.
   const gb = g.createLinearGradient(0, H, 0, H / 2);
-  gb.addColorStop(0, 'rgba(40,110,255,0.28)');
-  gb.addColorStop(1, 'rgba(40,110,255,0)');
+  gb.addColorStop(0, theme.floorTintBlue);
+  gb.addColorStop(1, 'rgba(0,0,0,0)');
   g.fillStyle = gb;
   g.fillRect(0, H / 2, W, H / 2);
   const go = g.createLinearGradient(0, 0, 0, H / 2);
-  go.addColorStop(0, 'rgba(255,130,30,0.28)');
-  go.addColorStop(1, 'rgba(255,130,30,0)');
+  go.addColorStop(0, theme.floorTintOrange);
+  go.addColorStop(1, 'rgba(0,0,0,0)');
   g.fillStyle = go;
   g.fillRect(0, 0, W, H / 2);
 
-  g.strokeStyle = 'rgba(255,255,255,0.85)';
+  g.strokeStyle = theme.line;
   g.lineWidth = 3;
   g.beginPath();
   g.moveTo(X(-ARENA.halfWidth), Y(0));
@@ -55,7 +56,7 @@ export function makeFloorTexture(): CanvasTexture {
   g.beginPath();
   g.arc(X(0), Y(0), 1000 * k, 0, Math.PI * 2);
   g.stroke();
-  g.fillStyle = 'rgba(255,255,255,0.9)';
+  g.fillStyle = theme.line;
   g.beginPath();
   g.arc(X(0), Y(0), 28 * k * 2, 0, Math.PI * 2);
   g.fill();

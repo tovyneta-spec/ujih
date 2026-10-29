@@ -50,6 +50,33 @@ demolición, dirección). Al marcar, la simulación entra en la fase `replay` (c
 Las cámaras (`render/cinematicCam.ts`) son tres planos: persecución del goleador, órbita sobre la pelota y línea
 de gol. Saltar la repetición llama a `Match.skipReplay`, que lleva directamente al saque.
 
+## Gráficos, efectos y temas (F5)
+
+- **Temas** (`config/themes.ts`): geometría idéntica, cambian paleta, luces, niebla, exposición y bloom. Cambiar
+  de tema reconstruye estadio y gradas (`GameRenderer.setTheme`).
+- **Post-proceso**: `EffectComposer` con objetivo MSAA ×4 en coma flotante, `UnrealBloomPass` y `OutputPass`
+  (tone mapping ACES). Los reflejos usan un entorno procedural (`RoomEnvironment`) prefiltrado una vez.
+- **Estadio**: las paredes son semitransparentes por arriba (alfa por vértice) y dejan ver gradas con público
+  instanciado (2 `InstancedMesh`, ≈1300 espectadores) que salta al marcar; barras de luz instanciadas y
+  pantallas con el marcador (`render/stadium.ts`).
+- **Partículas** (`render/particles.ts`): un `Points` por mezcla (aditiva y normal) con pool circular y
+  arrays tipados fijos: **cero asignaciones por frame**. `render/effects.ts` genera llamas y estela del turbo
+  (cuatro estilos más arcoíris), estela supersónica, humo y marcas de derrape (instancias), chispas, ondas de
+  choque, explosión de demolición y de gol (clásica, fuegos artificiales, confeti) y anillos de pads. Se
+  alimentan de eventos de la simulación (`ballTouch`, `ballBounce`, `wallHit`, `padPickup`, `demolition`,
+  `matchGoal`) y del estado visual de cada coche, por lo que también funcionan en las repeticiones.
+- **Coches** (`render/carMesh.ts`): 6 modelos procedurales con perfil y detalles propios (alerón, aletas,
+  escapes, barras de techo…), 5 estilos de rueda, calcomanías, antenas y barra/brillo del color del equipo
+  (el jugador elige sus colores en el garaje y el equipo sigue siendo legible).
+
+## Audio (`src/audio/`)
+
+Todo se sintetiza en tiempo real con WebAudio (sin archivos): motor (dos osciladores por coche con tono según
+velocidad, atenuación por distancia y panorama estéreo respecto a la cámara), turbo (ruido filtrado), impactos
+según intensidad, demolición, pads, cuenta atrás, bocina de dos tonos y ovación del público, sonidos de
+interfaz y música generativa Am–F–C–G opcional. El contexto se crea tras la primera interacción (autoplay).
+Las funciones puras (`dsp.ts`) están cubiertas por tests.
+
 ## IA de bots (`src/sim/ai/`)
 
 Los bots viven en `sim/` (sin DOM) y producen un `CarInput` por tick: **la misma entrada y la misma física que
@@ -103,12 +130,12 @@ coordenadas de la simulación.
   veces: es intencionado; afina `config/bots.ts` y `sim/ai/bot.ts` si quieres otro nivel de exigencia.
 - El estado interno de los bots (RNG, habilidades) no entra en los snapshots: para repeticiones se graban
   sus entradas, y un servidor autoritativo (F7) los ejecuta él mismo.
-- El tema de estadio de los mutadores se acepta pero no cambia nada hasta F5.
 - La repetición muestra los pads tal y como están en vivo (no se graban sus estados).
 - Si el navegador va muy por debajo de 60 FPS, la repetición se reproduce igualmente en tiempo de simulación.
-- La explosión de demolición es sólo ocultar el coche; los efectos llegan en F5.
+- Los bots usan carrocerías y estelas variadas según su id; el jugador usa las de su garaje.
+- El render por software de los entornos de prueba (sin GPU) va muy por debajo de 60 FPS con bloom y MSAA; en
+  una GPU normal no es un problema, pero no se ha podido medir el objetivo de 60 FPS aquí.
 - Los modelos de las 6 carrocerías comparten generador procedural con parámetros distintos; se diferenciarán
   más en F5.
 - La sensación de juego (curvas de giro, flip, golpeo) se ha calibrado con pruebas numéricas, no con jugadores:
   afínala en `src/config/physics.ts`.
-- Visual aún básico: sin bloom, partículas, audio ni gradas (F5).
