@@ -1,0 +1,139 @@
+:root {
+  --bg: #0a1022;
+  --blue: #2f7bff;
+  --orange: #ff7a1f;
+  --ink: #eaf0ff;
+}
+* {
+  box-sizing: border-box;
+}
+[hidden] {
+  display: none !important;
+}
+html,
+body {
+  margin: 0;
+  height: 100%;
+  background: var(--bg);
+  overflow: hidden;
+  font-family:
+    system-ui,
+    -apple-system,
+    'Segoe UI',
+    Roboto,
+    sans-serif;
+  color: var(--ink);
+  overscroll-behavior: none;
+}
+#game-root {
+  position: fixed;
+  inset: 0;
+  outline: none;
+  user-select: none;
+  -webkit-user-select: none;
+  touch-action: none;
+}
+#game-canvas {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  display: block;
+}
+#hud {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+}
+.boost {
+  position: absolute;
+  right: max(16px, env(safe-area-inset-right));
+  bottom: max(16px, env(safe-area-inset-bottom));
+  width: 160px;
+  height: 160px;
+  text-shadow: 0 2px 6px rgba(0, 0, 0, 0.6);
+}
+.boost svg {
+  position: absolute;
+  inset: 0;
+}
+.boost-bg {
+  fill: rgba(8, 14, 32, 0.55);
+  stroke: rgba(255, 255, 255, 0.15);
+  stroke-width: 10;
+}
+.boost-fg {
+  fill: none;
+  stroke: #ffb02e;
+  stroke-width: 10;
+  stroke-linecap: round;
+  transition: stroke-dashoffset 80ms linear;
+  filter: drop-shadow(0 0 6px rgba(255, 150, 20, 0.8));
+}
+.boost-fg.super {
+  stroke: #ffe9a6;
+}
+.boost-num {
+  position: absolute;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  font-size: 52px;
+  font-weight: 800;
+  font-variant-numeric: tabular-nums;
+  padding-bottom: 14px;
+}
+.speed {
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 30px;
+  text-align: center;
+  font-size: 13px;
+  opacity: 0.9;
+}
+.speed b {
+  font-size: 18px;
+}
+.hint {
+  position: absolute;
+  left: 50%;
+  bottom: 14px;
+  transform: translateX(-50%);
+  width: min(92vw, 980px);
+  text-align: center;
+  font-size: 13px;
+  line-height: 1.5;
+  padding: 8px 14px;
+  background: rgba(8, 14, 32, 0.6);
+  border-radius: 10px;
+  transition: opacity 1.2s;
+}
+.hint.fade {
+  opacity: 0;
+}
+#debug-overlay {
+  position: absolute;
+  top: 8px;
+  left: 8px;
+  padding: 8px 10px;
+  font:
+    12px/1.45 ui-monospace,
+    SFMono-Regular,
+    Menlo,
+    monospace;
+  background: rgba(0, 0, 0, 0.62);
+  border-radius: 6px;
+  white-space: pre;
+  pointer-events: none;
+}
+#fatal {
+  position: absolute;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  padding: 24px;
+  text-align: center;
+  background: var(--bg);
+  font-size: 18px;
+}

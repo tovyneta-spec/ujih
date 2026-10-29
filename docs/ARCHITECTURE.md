@@ -1,0 +1,67 @@
+# Arquitectura de Turbo Arena
+
+## Principios
+
+1. **Simulación separada del render.** `src/sim/` no importa DOM ni Three.js. Corre con paso fijo de 1/120 s
+   (acumulador en `core/loop.ts`); el render interpola entre los dos últimos estados (`prevPos/prevQuat`).
+2. **Determinismo y serialización.** RNG con semilla (`sim/rng.ts`), sin `Math.random` en la simulación y
+   `World.snapshot()/restore()` serializable (base de repeticiones y netcode).
+3. **Una sola entrada.** `CarInput { throttle, steer, pitch, yaw, roll, jump, boost, handbrake }` es lo único que
+   consume la simulación; la producen teclado, mando, táctil, bots y red.
+4. **Constantes centralizadas** en `src/config/`.
+5. **Sin dependencias en ejecución** salvo Three.js, empaquetado en el build (`base: './'`).
+
+## Decisión de física: motor propio (sin Rapier ni raycast-vehicle)
+
+El comportamiento del coche de Soccar es muy específico (curvatura de dirección dependiente de la velocidad,
+aceleración con caída lineal, "pegamento" a cualquier superficie, flips con par controlado, impulso extra de
+golpeo). Un motor genérico obligaría a pelear contra su solver para imitarlo, y añadiría un WASM de ~1 MB.
+Con un motor propio:
+
+- el paso es determinista y trivialmente serializable (necesario para repeticiones y netcode con el servidor
+  ejecutando la misma `sim/`);
+- el coste es mínimo (≈0,1 ms por paso con 1 coche; presupuesto ≤ 4 ms/frame);
+- cada regla del coche es una función legible y ajustable.
+
+**Colisión con el estadio: SDF analítico** (`sim/arena.ts`). El interior es la intersección redondeada de una
+planta de rectángulo con esquinas circulares (radio 1152) y el slab suelo–techo con rampas circulares (radio
+260), unida a una caja de portería que recorta la rampa. Ventajas: sin huecos ni atascos por construcción,
+normales suaves en las transiciones (coches y pelota circulan por paredes y techo sin saltos) y coste constante.
+Las normales se obtienen por diferencias centrales.
+
+**Coche.** Cuerpo rígido (masa 180, inercia de caja) con hitbox OBB. Las 8 esquinas se resuelven contra el SDF
+con impulsos + corrección posicional (`collisions.ts`); las 4 inferiores son las "ruedas". Con ≥3 ruedas
+apoyadas el coche está "en el suelo": se aplican motor/freno/deriva, agarre lateral, fuerza adhesiva y
+dirección por curvatura sobre la normal de la superficie. En el aire actúan pitch/yaw/roll con amortiguación.
+Las mecánicas avanzadas (cancelación de flip, half-flip, wavedash, aéreos, dribbling, flicks, flip reset)
+**emergen** de estas reglas: no hay atajos programados.
+
+**Pelota.** Esfera con rebote (0,6), fricción de Coulomb 0,35 que genera giro y resistencia del aire.
+**Coche–pelota:** esfera–OBB con fricción alta y, en el primer instante del contacto, un impulso extra
+dependiente de la velocidad relativa y de la zona de contacto (componente vertical atenuada al 35 %, componente
+frontal al 65 %), que produce el característico "pop".
+
+## Ejes y unidades
+
+Unidades de juego (uu, 1 uu = 1 cm). Ejes de la simulación: x = ancho, y = largo (portería azul en y < 0),
+z = arriba. En el render, el grupo raíz se rota −90° en x, de modo que los objetos usan directamente
+coordenadas de la simulación.
+
+## Supuestos
+
+- Se usa un radio de esquina vertical de 1152 uu y rampas de 260 uu (aproximación del estadio estándar).
+- Los postes y el larguero son aristas del SDF (grosor visual de 22 uu, colisión de arista viva).
+- La hitbox coincide con el centro físico; el desplazamiento visual (`visualOffset`) sólo afecta al modelo.
+- El flip aplica un impulso horizontal de 500 uu/s en el rumbo plano del coche y un par controlado de ≈0,65 s.
+- La pelota hace "gol" al cruzar por completo la línea (centro a más de su radio tras la línea de fondo).
+- Las demoliciones, el choque coche–coche, el reloj y las reglas llegan en F2 (la simulación ya reserva
+  `Car.demolished`).
+
+## Problemas conocidos (F1)
+
+- Con un único coche aún no hay colisión coche–coche (F2).
+- Los modelos de las 6 carrocerías comparten generador procedural con parámetros distintos; se diferenciarán
+  más en F5.
+- La sensación de juego (curvas de giro, flip, golpeo) se ha calibrado con pruebas numéricas, no con jugadores:
+  afínala en `src/config/physics.ts`.
+- Visual aún básico: sin bloom, partículas, audio ni gradas (F5).
