@@ -415,7 +415,7 @@ function extruded(points: P[], depth: number, bevel: number): ExtrudeGeometry {
     bevelEnabled: true,
     bevelThickness: bevel,
     bevelSize: bevel,
-    bevelSegments: 2,
+    bevelSegments: 4,
   });
   geo.translate(0, 0, -depth / 2);
   geo.rotateX(Math.PI / 2); // forma (x,y) → (x,z); extrusión → eje y
@@ -590,6 +590,47 @@ export function buildCarMesh(spec: CarBodySpec, look: CarLook, quality: Quality)
 
   addDecal(c, look.decal, shape, spec);
   addAntenna(c, look, shape);
+
+  // Detalles: pasos de rueda oscuros, retrovisores y línea de puerta (profundidad sin coste de dibujo:
+  // se fusionan con el material oscuro).
+  {
+    const m0 = spec.model;
+    const hw = (W * shape.lowerWidth) / 2 + 3.4;
+    for (const sx of [1, -1]) {
+      for (const sy of [1, -1]) {
+        const arch = new Mesh(
+          new CylinderGeometry(m0.wheelRadius + 4, m0.wheelRadius + 4, 1, 16),
+          dark,
+        );
+        arch.rotation.x = Math.PI / 2;
+        arch.position.set(sx * L * 0.3, sy * hw, -H / 2 + m0.wheelRadius);
+        c.add(arch);
+      }
+    }
+    const cabinFront = shape.cabin[shape.cabin.length - 1][0];
+    for (const sy of [1, -1]) {
+      box(
+        c,
+        5,
+        6,
+        3,
+        c.X(cabinFront - 0.06),
+        sy * (W * shape.cabinWidth * 0.5 + 3),
+        c.Z(0.52),
+        c.dark,
+      );
+      box(
+        c,
+        1,
+        1,
+        (c.Z(0.4) - c.zb) * 0.7,
+        c.X(0.5),
+        sy * hw,
+        c.zb + (c.Z(0.4) - c.zb) * 0.5,
+        c.dark,
+      );
+    }
+  }
 
   // Ruedas. Nivel bajo: fusionadas con la carrocería (sin giro individual); resto: animadas.
   const wheels: Group[] = [];

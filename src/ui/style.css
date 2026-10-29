@@ -896,3 +896,23 @@ button {
   padding: 6px 10px;
   font-size: 12px;
 }
+
+/* Líneas de velocidad en los bordes de la pantalla (opacidad según la velocidad). */
+.speedlines {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  opacity: 0;
+  background: repeating-conic-gradient(
+    from 0deg at 50% 52%,
+    rgba(255, 255, 255, 0) 0deg 5deg,
+    rgba(255, 255, 255, 0.55) 5.4deg 5.7deg,
+    rgba(255, 255, 255, 0) 6deg 11deg
+  );
+  -webkit-mask-image: radial-gradient(ellipse at 50% 52%, transparent 52%, #000 92%);
+  mask-image: radial-gradient(ellipse at 50% 52%, transparent 52%, #000 92%);
+  mix-blend-mode: screen;
+}
+.hud-hidden .speedlines {
+  display: none;
+}

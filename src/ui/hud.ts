@@ -8,6 +8,8 @@ export class Hud {
   private ring: SVGCircleElement;
   private boostText: HTMLElement;
   private speedText: HTMLElement;
+  private speedLines: HTMLElement;
+  private lastLines = -1;
   private hint: HTMLElement;
   private lastBoost = -1;
   private lastSpeed = -1;
@@ -26,6 +28,7 @@ export class Hud {
         <div class="boost-num">33</div>
         <div class="speed"><b>0</b> km/h</div>
       </div>
+      <div class="speedlines"></div>
       <div class="ping" hidden></div>
       <div class="netbanner" hidden>Reconectando…</div>
       <div class="hint">
@@ -36,6 +39,7 @@ export class Hud {
     this.ring = root.querySelector('.boost-fg') as SVGCircleElement;
     this.boostText = root.querySelector('.boost-num') as HTMLElement;
     this.speedText = root.querySelector('.speed b') as HTMLElement;
+    this.speedLines = root.querySelector('.speedlines') as HTMLElement;
     this.hint = root.querySelector('.hint') as HTMLElement;
     setTimeout(() => this.hint.classList.add('fade'), 12000);
   }
@@ -81,5 +85,12 @@ export class Hud {
       this.speedText.textContent = String(kmh);
     }
     this.ring.classList.toggle('super', car.supersonic);
+    // Líneas de velocidad en los bordes: aparecen a partir de ~1500 uu/s y se intensifican con el turbo.
+    const k = Math.max(0, Math.min(1, (car.speed - 1500) / 800));
+    const lines = Math.round(k * (car.boosting ? 1 : 0.75) * 20) / 20;
+    if (lines !== this.lastLines) {
+      this.lastLines = lines;
+      this.speedLines.style.opacity = String(lines);
+    }
   }
 }
