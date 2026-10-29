@@ -41,6 +41,15 @@ Las mecánicas avanzadas (cancelación de flip, half-flip, wavedash, aéreos, dr
 dependiente de la velocidad relativa y de la zona de contacto (componente vertical atenuada al 35 %, componente
 frontal al 65 %), que produce el característico "pop".
 
+## Repeticiones (`src/replay/`)
+
+`Recorder` guarda a 60 Hz un búfer circular de 12 s con el estado _visual_ (pose de coches y pelota, turbo,
+demolición, dirección). Al marcar, la simulación entra en la fase `replay` (congelada, temporizador de
+`replayTime`) y `ReplayPlayer` reproduce el segmento [gol − 5 s, gol + 2 s] interpolado. El renderer acepta un
+`RenderView` (fotograma + cámara) en lugar del estado vivo, de modo que la repetición no toca la simulación.
+Las cámaras (`render/cinematicCam.ts`) son tres planos: persecución del goleador, órbita sobre la pelota y línea
+de gol. Saltar la repetición llama a `Match.skipReplay`, que lleva directamente al saque.
+
 ## IA de bots (`src/sim/ai/`)
 
 Los bots viven en `sim/` (sin DOM) y producen un `CarInput` por tick: **la misma entrada y la misma física que
@@ -95,7 +104,8 @@ coordenadas de la simulación.
 - El estado interno de los bots (RNG, habilidades) no entra en los snapshots: para repeticiones se graban
   sus entradas, y un servidor autoritativo (F7) los ejecuta él mismo.
 - El tema de estadio de los mutadores se acepta pero no cambia nada hasta F5.
-- La repetición del gol (`replayTime`) está soportada por la simulación pero desactivada hasta F4.
+- La repetición muestra los pads tal y como están en vivo (no se graban sus estados).
+- Si el navegador va muy por debajo de 60 FPS, la repetición se reproduce igualmente en tiempo de simulación.
 - La explosión de demolición es sólo ocultar el coche; los efectos llegan en F5.
 - Los modelos de las 6 carrocerías comparten generador procedural con parámetros distintos; se diferenciarán
   más en F5.

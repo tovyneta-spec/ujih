@@ -22,11 +22,19 @@ import type { BallVisual } from './ballMesh';
 import { buildPadMeshes, updatePadVisual } from './boostPadMesh';
 import type { PadVisual } from './boostPadMesh';
 import { CameraRig } from './cameraRig';
+import type { CameraPose } from './cameraRig';
+import type { RenderFrame } from '../replay';
 import { buildCarMesh } from './carMesh';
 import type { CarVisual } from './carMesh';
 import { DebugDraw } from './debugDraw';
 import { TEAM_COLORS } from './arenaMesh';
 import { Vec3 } from '../sim';
+
+/** Opciones de dibujo para repeticiones y cámaras externas. */
+export interface RenderView {
+  frame?: RenderFrame;
+  pose?: CameraPose;
+}
 
 const SUN_OFFSET = new Vector3(0.45, 0.9, 0.35).normalize();
 const SHADOW_RANGE = 1700;
@@ -47,6 +55,9 @@ export class GameRenderer {
   private world: World | null = null;
   private focusCarId = 0;
   private ballScale = 1;
+  private padsGroup: Group | null = null;
+  /** Posición interpolada (o de repetición) de cada coche en el último frame. */
+  carRenderPos: Vec3[] = [];
 
   private carPos = new Vec3();
   private ballPos = new Vec3();
@@ -99,11 +110,12 @@ export class GameRenderer {
     this.ballScale = scale;
   }
 
-  /** Crea los objetos visuales de un mundo (coches, pads). */
+  /** Crea los objetos visuales de un mundo (coches, pads). Libera los del mundo anterior. */
   setWorld(world: World, focusCarId = 0): void {
     this.world = world;
     this.focusCarId = focusCarId;
     for (const c of this.cars) this.simRoot.remove(c.visual.group);
+    if (this.padsGroup) this.simRoot.remove(this.padsGroup);
     this.cars = world.cars.map((car) => {
       const primary = car.team === 0 ? TEAM_COLORS.blue : TEAM_COLORS.orange;
       const secondary = new Color(0x1b2236);
@@ -111,8 +123,10 @@ export class GameRenderer {
       this.simRoot.add(visual.group);
       return { visual, wheelSpin: 0 };
     });
+    this.carRenderPos = world.cars.map(() => new Vec3());
     const pads = buildPadMeshes(world.pads);
     this.simRoot.add(pads.group);
+    this.padsGroup = pads.group;
     this.padVisuals = pads.visuals;
     this.debug.setCars(world.cars);
     this.rig.reset();
@@ -124,22 +138,32 @@ export class GameRenderer {
     this.camera.updateProjectionMatrix();
   }
 
-  /** Dibuja un frame interpolando entre los dos últimos pasos de física. */
-  render(alpha: number, frameDt: number): void {
+  /**
+   * Dibuja un frame. Sin `view`, interpola entre los dos últimos pasos de física y usa la cámara de
+   * juego; con `view.frame` dibuja un estado grabado (repetición) y con `view.pose` usa esa cámara.
+   */
+  render(alpha: number, frameDt: number, view?: RenderView): void {
     const world = this.world;
     if (!world) return;
+    const frame = view?.frame;
 
     // Pelota.
     const b = world.ball;
-    this.ballPos.set(
-      b.prevPos.x + (b.pos.x - b.prevPos.x) * alpha,
-      b.prevPos.y + (b.pos.y - b.prevPos.y) * alpha,
-      b.prevPos.z + (b.pos.z - b.prevPos.z) * alpha,
-    );
+    if (frame) {
+      this.ballPos.copy(frame.ballPos);
+      this.tq.set(frame.ballQuat.x, frame.ballQuat.y, frame.ballQuat.z, frame.ballQuat.w);
+    } else {
+      this.ballPos.set(
+        b.prevPos.x + (b.pos.x - b.prevPos.x) * alpha,
+        b.prevPos.y + (b.pos.y - b.prevPos.y) * alpha,
+        b.prevPos.z + (b.pos.z - b.prevPos.z) * alpha,
+      );
+      this.tq.set(b.prevQuat.x, b.prevQuat.y, b.prevQuat.z, b.prevQuat.w);
+      this.tq2.set(b.quat.x, b.quat.y, b.quat.z, b.quat.w);
+      this.tq.slerp(this.tq2, alpha);
+    }
     this.ball.group.position.set(this.ballPos.x, this.ballPos.y, this.ballPos.z);
-    this.tq.set(b.prevQuat.x, b.prevQuat.y, b.prevQuat.z, b.prevQuat.w);
-    this.tq2.set(b.quat.x, b.quat.y, b.quat.z, b.quat.w);
-    this.ball.group.quaternion.copy(this.tq.slerp(this.tq2, alpha));
+    this.ball.group.quaternion.copy(this.tq);
     this.ball.blob.position.set(this.ballPos.x, this.ballPos.y, 1);
     const height = this.ballPos.z;
     const s = (1 + height / 900) * this.ballScale;
@@ -150,25 +174,53 @@ export class GameRenderer {
     world.cars.forEach((car, i) => {
       const v = this.cars[i];
       const g = v.visual.group;
-      const px = car.prevPos.x + (car.pos.x - car.prevPos.x) * alpha;
-      const py = car.prevPos.y + (car.pos.y - car.prevPos.y) * alpha;
-      const pz = car.prevPos.z + (car.pos.z - car.prevPos.z) * alpha;
+      let px: number;
+      let py: number;
+      let pz: number;
+      let demolished: boolean;
+      let boosting: boolean;
+      let grounded: boolean;
+      let steerIn: number;
+      let fwdSpeed: number;
+      if (frame) {
+        const fc = frame.cars[i];
+        px = fc.pos.x;
+        py = fc.pos.y;
+        pz = fc.pos.z;
+        this.tq.set(fc.quat.x, fc.quat.y, fc.quat.z, fc.quat.w);
+        demolished = fc.demolished;
+        boosting = fc.boosting;
+        grounded = fc.grounded;
+        steerIn = fc.steer;
+        fwdSpeed = fc.forwardSpeed;
+      } else {
+        px = car.prevPos.x + (car.pos.x - car.prevPos.x) * alpha;
+        py = car.prevPos.y + (car.pos.y - car.prevPos.y) * alpha;
+        pz = car.prevPos.z + (car.pos.z - car.prevPos.z) * alpha;
+        this.tq.set(car.prevQuat.x, car.prevQuat.y, car.prevQuat.z, car.prevQuat.w);
+        this.tq2.set(car.quat.x, car.quat.y, car.quat.z, car.quat.w);
+        this.tq.slerp(this.tq2, alpha);
+        demolished = car.demolished;
+        boosting = car.boosting;
+        grounded = car.grounded;
+        steerIn = car.input.steer;
+        fwdSpeed = car.forwardSpeed;
+      }
       g.position.set(px, py, pz);
-      this.tq.set(car.prevQuat.x, car.prevQuat.y, car.prevQuat.z, car.prevQuat.w);
-      this.tq2.set(car.quat.x, car.quat.y, car.quat.z, car.quat.w);
-      g.quaternion.copy(this.tq.slerp(this.tq2, alpha));
-      g.visible = !car.demolished;
+      g.quaternion.copy(this.tq);
+      g.visible = !demolished;
+      this.carRenderPos[i].set(px, py, pz);
 
       // Ruedas: giro por distancia recorrida y dirección visual.
-      v.wheelSpin += (car.forwardSpeed * frameDt) / car.body.model.wheelRadius;
+      v.wheelSpin += (fwdSpeed * frameDt) / car.body.model.wheelRadius;
       for (const w of v.visual.wheels) w.rotation.y = -v.wheelSpin;
-      const steer = car.grounded ? -car.input.steer * 0.45 : 0;
+      const steer = grounded ? -steerIn * 0.45 : 0;
       for (const p of v.visual.steerPivots)
         p.rotation.z += (steer - p.rotation.z) * Math.min(1, frameDt * 14);
       // Llamas.
       const flicker = 0.85 + Math.random() * 0.3;
       for (const f of v.visual.flames) {
-        f.visible = car.boosting;
+        f.visible = boosting;
         f.scale.set(flicker, 1, 1);
       }
       if (car.id === this.focusCarId) this.carPos.set(px, py, pz);
@@ -178,9 +230,11 @@ export class GameRenderer {
 
     // Cámara.
     const focus = world.cars[this.focusCarId];
-    if (focus) {
-      const fwd = focus.forward;
-      const pose = this.rig.update(frameDt, this.carPos, fwd, this.ballPos, focus.boosting);
+    let pose: CameraPose | null = view?.pose ?? null;
+    if (!pose && focus) {
+      pose = this.rig.update(frameDt, this.carPos, focus.forward, this.ballPos, focus.boosting);
+    }
+    if (pose) {
       this.camera.position.set(pose.position.x, pose.position.z, -pose.position.y);
       this.tv.set(pose.target.x, pose.target.z, -pose.target.y);
       this.camera.lookAt(this.tv);
@@ -190,12 +244,22 @@ export class GameRenderer {
       }
     }
 
-    // Sombras: la cámara de sombra sigue al coche (más densidad de texel que cubrir todo el estadio).
-    this.sun.target.position.set(this.carPos.x, 0, -this.carPos.y);
+    // Sombras: la cámara de sombra sigue al foco (más densidad de texel que cubrir todo el estadio).
+    const sx = view?.pose ? this.ballPos.x : this.carPos.x;
+    const sy = view?.pose ? this.ballPos.y : this.carPos.y;
+    this.sun.target.position.set(sx, 0, -sy);
     this.sun.position.copy(this.sun.target.position).addScaledVector(SUN_OFFSET, 2500);
 
     this.debug.update(alpha);
     this.renderer.render(this.scene, this.camera);
+  }
+
+  /** Proyecta un punto de la simulación a píxeles de pantalla; devuelve false si queda detrás de la cámara. */
+  project(x: number, y: number, z: number, out: { x: number; y: number }): boolean {
+    this.tv.set(x, z, -y).project(this.camera);
+    out.x = (this.tv.x * 0.5 + 0.5) * this.renderer.domElement.clientWidth;
+    out.y = (-this.tv.y * 0.5 + 0.5) * this.renderer.domElement.clientHeight;
+    return this.tv.z < 1;
   }
 
   dispose(): void {

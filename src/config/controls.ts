@@ -14,7 +14,11 @@ export type Action =
   | 'scoreboard'
   | 'reset'
   | 'pause'
-  | 'debug';
+  | 'debug'
+  | 'chat1'
+  | 'chat2'
+  | 'chat3'
+  | 'chat4';
 
 export const DEFAULT_KEYS: Record<Action, readonly string[]> = {
   throttleUp: ['KeyW', 'ArrowUp'],
@@ -32,7 +36,14 @@ export const DEFAULT_KEYS: Record<Action, readonly string[]> = {
   reset: ['KeyR'],
   pause: ['Escape'],
   debug: ['F3'],
+  chat1: ['Digit1'],
+  chat2: ['Digit2'],
+  chat3: ['Digit3'],
+  chat4: ['Digit4'],
 };
+
+/** Mensajes del chat rápido (teclas 1–4). */
+export const QUICK_CHAT = ['¡La tengo!', '¡Defendiendo!', '¡Buen tiro!', '¡Gracias!'] as const;
 
 /** Rampa del teclado digital (unidades de eje por segundo). */
 export const KEYBOARD_RAMP = { rise: 9, fall: 14 } as const;

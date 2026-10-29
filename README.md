@@ -6,10 +6,25 @@ TypeScript estricto + Vite + Three.js (WebGL2) con una simulación física propi
 > Juego original: no usa nombres, logos, modelos, texturas ni sonidos de Psyonix/Epic Games.
 > Todos los assets se generan por código (ver `CREDITS.md`).
 
-**Estado: Fase F3** (ver [Plan de fases](#plan-de-fases)). Práctica libre y **partidas completas contra bots**
-en 1v1, 2v2 y 3v3 (Azul vs Naranja), con reglas Soccar (saque 3-2-1, reloj, goles con goleador y velocidad,
-prórroga con gol de oro, demoliciones, puntuación, pantalla final), 3 niveles de bots y partida personalizada
-con mutadores. Los menús llegan en F4, así que de momento se configura por URL.
+**Estado: Fase F4 (parcial)** (ver [Plan de fases](#plan-de-fases)). Menú principal, práctica libre y
+**partidas completas contra bots** en 1v1, 2v2 y 3v3 (Azul vs Naranja), con reglas Soccar (saque 3-2-1, reloj,
+goles con goleador y velocidad, prórroga con gol de oro, demoliciones, puntuación), 3 niveles de bots, partida
+personalizada con mutadores, **repetición de cada gol** con cámaras cinemáticas y pantalla de resultados.
+De F4 quedan para otra entrega: ajustes persistentes y reasignación de teclas, cámara con ajustes, mando y táctil.
+
+## Menús y pantallas
+
+- **Menú principal**: Jugar (formato, equipo, nivel de bots), Partida personalizada (todos los mutadores),
+  Práctica libre, Créditos. _Garaje_ y _Ajustes_ aparecen deshabilitados hasta sus fases. La última
+  configuración se recuerda en `localStorage`.
+- **Pausa** (`Esc`, o automática al perder el foco): Continuar, Reiniciar partida, Abandonar.
+- **Repetición**: tras cada gol y 2,5 s de juego libre se reproducen ≈7 s con tres planos (seguimiento del
+  goleador, órbita sobre la pelota y cámara de línea de gol). `Espacio` o clic para saltarla.
+- **Resultados**: ganador, marcador, serie, tablas por equipo con MVP y botones _Revancha / Siguiente
+  partido_, _Cambiar modo_ y _Menú principal_ (`R` = revancha).
+- **HUD**: marcador y reloj (en prórroga `+m:ss`), turbo circular con km/h, nombres sobre los coches, barras
+  de turbo de compañeros, registro de eventos (demoliciones, paradas, asistencias), avisos de puntos,
+  chat rápido (`1`–`4`) y marcador completo con `Tab`.
 
 ## Modos y configuración por URL
 
@@ -93,9 +108,12 @@ El juego sólo captura el teclado cuando tiene el foco (clic dentro) y bloquea e
 | Cámara de pelota / coche | `C`                                                   |
 | Mirar atrás              | `V` (mantener)                                        |
 | Reiniciar                | `R`                                                   |
+| Marcador completo        | `Tab` (mantener)                                      |
+| Chat rápido              | `1` `2` `3` `4`                                       |
+| Pausa                    | `Esc`                                                 |
 | Depuración               | `F3` (hitboxes, contactos de ruedas, velocidad, FPS)  |
 
-Las teclas por defecto están en `src/config/controls.ts` (la reasignación desde Ajustes llega en F4).
+Las teclas por defecto están en `src/config/controls.ts` (la reasignación desde Ajustes llega en una fase posterior).
 
 ## Estructura del proyecto
 
@@ -114,9 +132,11 @@ src/
     world.ts       estado, paso, eventos, snapshots (serializable)
     input.ts       CarInput: la única estructura de entrada
   render/   Three.js: estadio procedural, coche, pelota, pads, cámara, depuración
-  input/    teclado (rampa digital); mando y táctil llegan en F4
+  input/    teclado (rampa digital); mando y táctil pendientes
   core/     bucle de paso fijo con acumulador + render interpolado
-  ui/       HUD HTML/CSS
+  replay/   grabador circular de estados + reproductor interpolado (sin DOM)
+  ui/       HUD, menús y pantallas en HTML/CSS
+  game.ts   controlador: estados menú/jugando/pausa, partidas, repeticiones
 tests/      Vitest sobre la simulación
 docs/       arquitectura y decisiones
 ```

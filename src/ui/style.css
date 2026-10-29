@@ -231,6 +231,7 @@ body {
   animation: pop 0.25s ease-out;
 }
 .end {
+  pointer-events: auto;
   position: absolute;
   left: 50%;
   top: 50%;
@@ -265,4 +266,337 @@ body {
 .end tr.mvp {
   color: #ffd34d;
   font-weight: 800;
+}
+.extras {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+}
+.plates .plate {
+  position: absolute;
+  left: 0;
+  top: 0;
+  padding: 1px 8px;
+  font-size: 13px;
+  font-weight: 700;
+  border-radius: 6px;
+  white-space: nowrap;
+  text-shadow: 0 1px 3px rgba(0, 0, 0, 0.8);
+  background: rgba(8, 14, 32, 0.45);
+  border: 1px solid rgba(255, 255, 255, 0.15);
+  will-change: transform;
+}
+.plate.t0 {
+  color: #8db8ff;
+  border-color: #2f7bff;
+}
+.plate.t1 {
+  color: #ffb27a;
+  border-color: #ff7a1f;
+}
+.teambars {
+  position: absolute;
+  left: max(14px, env(safe-area-inset-left));
+  bottom: 70px;
+  width: 190px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.tbar {
+  font-size: 13px;
+  font-weight: 700;
+  text-shadow: 0 1px 3px rgba(0, 0, 0, 0.8);
+}
+.tbar > div {
+  height: 7px;
+  margin-top: 2px;
+  background: rgba(8, 14, 32, 0.6);
+  border-radius: 4px;
+  overflow: hidden;
+}
+.tbar i {
+  display: block;
+  height: 100%;
+  background: linear-gradient(90deg, #ff9d1f, #ffd34d);
+}
+.tbar.down {
+  opacity: 0.4;
+}
+.feed {
+  position: absolute;
+  right: max(14px, env(safe-area-inset-right));
+  top: 14px;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 4px;
+}
+.feeditem {
+  padding: 3px 10px;
+  font-size: 14px;
+  font-weight: 700;
+  border-radius: 6px;
+  background: rgba(8, 14, 32, 0.65);
+  border-right: 4px solid #2f7bff;
+  animation: pop 0.25s ease-out;
+}
+.feeditem.t1 {
+  border-right-color: #ff7a1f;
+}
+.board {
+  position: absolute;
+  left: 50%;
+  top: 14%;
+  transform: translateX(-50%);
+  min-width: min(94vw, 660px);
+  padding: 12px 16px;
+  background: rgba(8, 14, 32, 0.88);
+  border-radius: 14px;
+}
+.board table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 15px;
+}
+.board th,
+.board td {
+  padding: 4px 8px;
+  text-align: center;
+}
+.board td:first-child,
+.board th:first-child {
+  text-align: left;
+}
+.board tr.th th {
+  font-size: 13px;
+  padding-top: 12px;
+}
+.board tr.th.t0 th {
+  color: #8db8ff;
+}
+.board tr.th.t1 th {
+  color: #ffb27a;
+}
+.hud-hidden .boost,
+.hud-hidden .hint,
+.hud-hidden .extras,
+.hud-hidden .match .score,
+.hud-hidden .match .toasts {
+  display: none;
+}
+.replay-tag {
+  position: absolute;
+  left: 24px;
+  top: 22px;
+  padding: 6px 16px;
+  font-size: 20px;
+  font-weight: 900;
+  letter-spacing: 0.12em;
+  background: rgba(190, 30, 45, 0.85);
+  border-radius: 8px;
+}
+.replay-skip {
+  position: absolute;
+  left: 24px;
+  top: 66px;
+  font-size: 14px;
+  opacity: 0.85;
+}
+
+.end h2.win {
+  color: #7dff9a;
+}
+.end h2.lose {
+  color: #ff8b8b;
+}
+.end .final .t0 {
+  color: #8db8ff;
+}
+.end .final .t1 {
+  color: #ffb27a;
+}
+.end .series {
+  margin: 0 0 8px;
+  opacity: 0.9;
+}
+.end tr.th th {
+  font-size: 12px;
+  padding-top: 10px;
+}
+.end tr.th.t0 th {
+  color: #8db8ff;
+}
+.end tr.th.t1 th {
+  color: #ffb27a;
+}
+.end .buttons {
+  display: flex;
+  gap: 10px;
+  justify-content: center;
+  flex-wrap: wrap;
+  margin-top: 16px;
+}
+.end .hintline {
+  margin: 8px 0 0;
+  font-size: 12px;
+  opacity: 0.6;
+}
+button {
+  font: inherit;
+}
+.end button,
+.menu button.btn {
+  cursor: pointer;
+  color: var(--ink);
+  background: rgba(255, 255, 255, 0.09);
+  border: 1px solid rgba(255, 255, 255, 0.22);
+  border-radius: 10px;
+  padding: 10px 18px;
+  font-weight: 700;
+  font-size: 16px;
+}
+.end button:hover,
+.menu button.btn:hover:not(:disabled) {
+  background: rgba(255, 255, 255, 0.18);
+}
+.end button.primary,
+.menu button.btn.primary {
+  background: linear-gradient(180deg, #3b86ff, #2563d9);
+  border-color: #5b9aff;
+}
+.menu {
+  position: absolute;
+  inset: 0;
+  z-index: 20;
+  display: grid;
+  place-items: center;
+  padding: 16px;
+  overflow: auto;
+  background: radial-gradient(ellipse at center, rgba(8, 14, 32, 0.35), rgba(8, 14, 32, 0.82));
+}
+.menu .panel {
+  width: min(94vw, 560px);
+  padding: 28px 30px;
+  text-align: center;
+  background: rgba(10, 16, 36, 0.82);
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  border-radius: 18px;
+  backdrop-filter: blur(6px);
+  box-shadow: 0 20px 60px rgba(0, 0, 0, 0.55);
+}
+.menu h1.title {
+  margin: 0;
+  font-size: clamp(38px, 8vw, 58px);
+  font-weight: 900;
+  letter-spacing: 0.06em;
+}
+.menu h1.title span {
+  background: linear-gradient(90deg, #3b86ff, #ff7a1f);
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent;
+}
+.menu h2 {
+  margin: 0 0 14px;
+  font-size: 28px;
+}
+.menu .tag {
+  margin: 4px 0 20px;
+  opacity: 0.75;
+}
+.menu .stack {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+.menu button.btn {
+  width: 100%;
+}
+.menu button.btn:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+.menu button.btn small {
+  font-weight: 500;
+  opacity: 0.8;
+  margin-left: 6px;
+}
+.menu .foot,
+.menu .note {
+  margin: 16px 0 0;
+  font-size: 13px;
+  opacity: 0.65;
+}
+.menu .buttons {
+  display: flex;
+  gap: 10px;
+  margin-top: 18px;
+}
+.menu .buttons .btn {
+  flex: 1;
+}
+.menu .row {
+  display: grid;
+  gap: 6px;
+  margin: 12px 0;
+  text-align: left;
+}
+.menu .row > span {
+  font-size: 13px;
+  opacity: 0.75;
+}
+.menu .segs {
+  display: flex;
+  gap: 8px;
+}
+.menu .seg {
+  flex: 1;
+  cursor: pointer;
+  color: var(--ink);
+  padding: 10px 8px;
+  font-weight: 700;
+  background: rgba(255, 255, 255, 0.07);
+  border: 1px solid rgba(255, 255, 255, 0.2);
+  border-radius: 10px;
+}
+.menu .seg.on {
+  background: linear-gradient(180deg, #3b86ff, #2563d9);
+  border-color: #5b9aff;
+}
+.menu .grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(210px, 1fr));
+  gap: 10px 14px;
+  margin-top: 10px;
+}
+.menu .field {
+  display: grid;
+  gap: 4px;
+  text-align: left;
+  font-size: 13px;
+}
+.menu .field span {
+  opacity: 0.75;
+}
+.menu select {
+  font: inherit;
+  color: var(--ink);
+  background: #131c38;
+  border: 1px solid rgba(255, 255, 255, 0.25);
+  border-radius: 8px;
+  padding: 8px;
+}
+.menu .credits {
+  text-align: left;
+  font-size: 14px;
+  line-height: 1.55;
+}
+.menu code {
+  background: rgba(255, 255, 255, 0.1);
+  padding: 1px 5px;
+  border-radius: 4px;
+}
+.menu:has(.grid) .panel {
+  width: min(96vw, 860px);
 }

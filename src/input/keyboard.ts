@@ -9,6 +9,8 @@ export class KeyboardInput {
   private pressed = new Set<Action>();
   private bindings: Record<Action, readonly string[]>;
   private captured = false;
+  /** Si es false se ignora el teclado (menús abiertos): no bloquea teclas del navegador. */
+  enabled = true;
   private steerAxis = 0;
   private readonly out: CarInput = neutralInput();
   private keyToAction = new Map<string, Action>();
@@ -50,7 +52,7 @@ export class KeyboardInput {
   }
 
   private onKey(e: KeyboardEvent, isDown: boolean): void {
-    if (!this.captured) return;
+    if (!this.captured || !this.enabled) return;
     const action = this.keyToAction.get(e.code);
     if (!action) return;
     // Evita que flechas, espacio o Tab desplacen la página que aloja el juego.
@@ -59,6 +61,11 @@ export class KeyboardInput {
       if (!this.down.has(e.code) && !e.repeat) this.pressed.add(action);
       this.down.add(e.code);
     } else this.down.delete(e.code);
+  }
+
+  /** Descarta las pulsaciones pendientes (p. ej. al cambiar de pantalla). */
+  clearPressed(): void {
+    this.pressed.clear();
   }
 
   isDown(action: Action): boolean {

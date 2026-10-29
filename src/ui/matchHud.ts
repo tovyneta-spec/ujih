@@ -15,6 +15,8 @@ function fmt(seconds: number): string {
   return `${Math.floor(s / 60)}:${String(s % 60).padStart(2, '0')}`;
 }
 
+export type EndAction = 'rematch' | 'change' | 'menu';
+
 export class MatchHud {
   private root: HTMLElement;
   private blue: HTMLElement;
@@ -30,10 +32,18 @@ export class MatchHud {
   names: string[] = [];
   humanId = 0;
   humanTeam: 0 | 1 = 0;
+  /** Ids de coche por equipo (para la tabla de resultados). */
+  teamIds: [number[], number[]] = [[], []];
   /** Texto extra de la serie para la pantalla final. */
   seriesText = '';
 
-  constructor(parent: HTMLElement) {
+  private replayTag: HTMLElement;
+  private onAction: (a: EndAction) => void;
+  /** Hay otra partida de la serie por jugar (cambia el texto del botón principal). */
+  seriesContinues = false;
+
+  constructor(parent: HTMLElement, onAction: (a: EndAction) => void = () => {}) {
+    this.onAction = onAction;
     this.root = document.createElement('div');
     this.root.className = 'match';
     this.root.innerHTML = `
@@ -44,7 +54,9 @@ export class MatchHud {
       </div>
       <div class="banner" hidden><div class="big"></div><div class="small"></div></div>
       <div class="toasts"></div>
-      <div class="end" hidden></div>`;
+      <div class="end" hidden></div>
+      <div class="replay-tag" hidden>REPETICIÓN</div>
+      <div class="replay-skip" hidden>Pulsa Espacio para saltar</div>`;
     parent.appendChild(this.root);
     const q = (s: string) => this.root.querySelector(s) as HTMLElement;
     this.blue = q('.blue');
@@ -54,6 +66,27 @@ export class MatchHud {
     this.sub = q('.banner .small');
     this.toasts = q('.toasts');
     this.end = q('.end');
+    this.replayTag = q('.replay-tag');
+    this.replaySkip = q('.replay-skip');
+  }
+
+  private replaySkip: HTMLElement;
+
+  /** Muestra u oculta la etiqueta de repetición. */
+  setReplay(active: boolean): void {
+    this.replayTag.hidden = !active;
+    this.replaySkip.hidden = !active;
+    if (active) this.banner.hidden = true;
+  }
+
+  /** Limpia banners y pantalla final al empezar una partida nueva. */
+  reset(): void {
+    this.end.hidden = true;
+    this.banner.hidden = true;
+    this.toasts.innerHTML = '';
+    this.seriesText = '';
+    this.seriesContinues = false;
+    this.setReplay(false);
   }
 
   setVisible(v: boolean): void {
@@ -127,24 +160,41 @@ export class MatchHud {
     const humanTeam = this.humanTeam;
     const title = winner === -1 ? 'Empate' : winner === humanTeam ? '¡Victoria!' : 'Derrota';
     let best = -1;
-    let mvp = 0;
+    let mvp = -1;
     match.stats.forEach((s, i) => {
       if (s.score > best) {
         best = s.score;
         mvp = i;
       }
     });
-    const rows = match.stats
-      .map(
-        (s, i) =>
-          `<tr class="${i === mvp ? 'mvp' : ''}"><td>${this.name(i)}${i === mvp ? ' ★ MVP' : ''}</td><td>${s.score}</td><td>${s.goals}</td><td>${s.assists}</td><td>${s.saves + s.epicSaves}</td><td>${s.shots}</td><td>${s.demos}</td></tr>`,
-      )
-      .join('');
+    const team = (t: 0 | 1): string => {
+      const rows = this.teamIds[t]
+        .slice()
+        .sort((a, b) => (match.stats[b]?.score ?? 0) - (match.stats[a]?.score ?? 0))
+        .map((i) => {
+          const s = match.stats[i];
+          return `<tr class="${i === mvp ? 'mvp' : ''}"><td>${this.name(i)}${i === mvp ? ' ★ MVP' : ''}</td><td>${s.score}</td><td>${s.goals}</td><td>${s.assists}</td><td>${s.saves + s.epicSaves}</td><td>${s.shots}</td><td>${s.demos}</td></tr>`;
+        })
+        .join('');
+      return `<tr class="th t${t}"><th>${t === 0 ? 'AZUL' : 'NARANJA'} · ${match.score[t]}</th><th>Pts</th><th>Goles</th><th>Asist.</th><th>Paradas</th><th>Tiros</th><th>Demol.</th></tr>${rows}`;
+    };
+    const next = this.seriesContinues ? 'Siguiente partido' : 'Revancha';
     this.end.hidden = false;
-    this.end.innerHTML = `<h2>${title}</h2><div class="final">${match.score[0]} – ${match.score[1]}</div>
-      <table><tr><th></th><th>Pts</th><th>Goles</th><th>Asist.</th><th>Paradas</th><th>Tiros</th><th>Demol.</th></tr>${rows}</table>
+    this.end.innerHTML = `<h2 class="${winner === humanTeam ? 'win' : winner === -1 ? '' : 'lose'}">${title}</h2>
+      <div class="final"><span class="t0">${match.score[0]}</span> – <span class="t1">${match.score[1]}</span></div>
       ${this.seriesText ? `<p class="series">${this.seriesText}</p>` : ''}
-      <p>Pulsa <b>R</b> para ${this.seriesText.includes('Serie ganada') || this.seriesText.includes('Serie perdida') ? 'una nueva serie' : 'continuar'}</p>`;
+      <table>${team(0)}${team(1)}</table>
+      <div class="buttons">
+        <button data-a="rematch" class="primary">${next}</button>
+        <button data-a="change">Cambiar modo</button>
+        <button data-a="menu">Menú principal</button>
+      </div>
+      <p class="hintline">R = ${next.toLowerCase()}</p>`;
+    this.end
+      .querySelectorAll('button')
+      .forEach((b) =>
+        b.addEventListener('click', () => this.onAction((b as HTMLElement).dataset.a as EndAction)),
+      );
     this.banner.hidden = true;
   }
 

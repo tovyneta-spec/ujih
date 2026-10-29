@@ -56,6 +56,9 @@ export const DEFAULT_MUTATORS: Mutators = {
   botLevel: 'pro',
 };
 
+/** Duración (s) de la repetición tras un gol. */
+export const REPLAY_TIME = 7;
+
 export interface ResolvedMutators {
   perTeam: number;
   match: MatchConfig;
@@ -96,6 +99,7 @@ export function resolveMutators(m: Mutators): ResolvedMutators {
       overtime: m.overtime,
       demolition: m.demolition,
       respawnTime: m.respawnTime,
+      replayTime: REPLAY_TIME,
     },
     timeScale: SPEED[m.gameSpeed],
     ball: {
