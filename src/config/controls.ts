@@ -59,7 +59,7 @@ export const SCHEMES: Record<ControlScheme, { name: string; description: string 
   mouse: {
     name: '67tetitasdani',
     description:
-      'W acelera, S frena y marcha atrás; el ratón gira a izquierda/derecha; clic izquierdo = turbo; clic derecho = salto.',
+      'W acelera, S frena y marcha atrás; mueve el ratón a izquierda/derecha para girar (el volante se recentra solo); clic izquierdo = turbo; clic derecho = salto.',
   },
 };
 

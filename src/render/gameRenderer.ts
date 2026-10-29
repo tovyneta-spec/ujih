@@ -2,6 +2,7 @@
 // interpolación. También ofrece una vista previa giratoria para el garaje.
 import {
   ACESFilmicToneMapping,
+  AmbientLight,
   Color,
   DirectionalLight,
   Fog,
@@ -9,6 +10,7 @@ import {
   HalfFloatType,
   HemisphereLight,
   Mesh,
+  MeshBasicMaterial,
   MeshStandardMaterial,
   PCFShadowMap,
   PCFSoftShadowMap,
@@ -18,6 +20,7 @@ import {
   PerspectiveCamera,
   Quaternion,
   Scene,
+  TorusGeometry,
   Vector2,
   Vector3,
   WebGLRenderTarget,
@@ -26,6 +29,7 @@ import {
 import { EffectComposer } from 'three/examples/jsm/postprocessing/EffectComposer.js';
 import { OutputPass } from 'three/examples/jsm/postprocessing/OutputPass.js';
 import { RenderPass } from 'three/examples/jsm/postprocessing/RenderPass.js';
+import { ShaderPass } from 'three/examples/jsm/postprocessing/ShaderPass.js';
 import { UnrealBloomPass } from 'three/examples/jsm/postprocessing/UnrealBloomPass.js';
 import { RoomEnvironment } from 'three/examples/jsm/environments/RoomEnvironment.js';
 import { BALL, CAR_BODIES, THEMES } from '../config';
@@ -101,7 +105,18 @@ export class GameRenderer {
   private bloom: UnrealBloomPass | null = null;
 
   // Vista previa del garaje.
-  private preview: { visual: CarVisual; platform: Mesh; time: number } | null = null;
+  private preview: {
+    visual: CarVisual;
+    platform: Mesh;
+    ring: Mesh;
+    lights: Group;
+    time: number;
+  } | null = null;
+  /** Cámara orbital del garaje: giro del coche, elevación (rad), distancia y giro automático. */
+  private pvAngle = 0.7;
+  private pvPitch = 0.3;
+  private pvDist = 430;
+  pvAuto = true;
   private previewBodyId: CarBodyId = 'octane';
   private previewFx: FxCar = createFxCar();
 
@@ -209,6 +224,25 @@ export class GameRenderer {
       this.composer.addPass(this.bloom);
       const t = this.themeId ? THEMES[this.themeId] : null;
       if (t) this.setBloomFromTheme(t.bloom);
+    }
+    // Viñeta suave y un leve aumento de contraste (sólo en medio/alto: un pase de pantalla completa).
+    if (q.bloom) {
+      this.composer.addPass(
+        new ShaderPass({
+          uniforms: { tDiffuse: { value: null } },
+          vertexShader:
+            'varying vec2 vUv; void main(){ vUv = uv; gl_Position = projectionMatrix * modelViewMatrix * vec4(position,1.0); }',
+          fragmentShader: `uniform sampler2D tDiffuse; varying vec2 vUv;
+            void main(){
+              vec4 c = texture2D(tDiffuse, vUv);
+              vec2 d = vUv - 0.5;
+              float v = smoothstep(0.35, 0.95, length(d * vec2(1.15, 1.0)));
+              c.rgb = (c.rgb - 0.5) * 1.06 + 0.5;
+              c.rgb *= 1.0 - v * 0.32;
+              gl_FragColor = c;
+            }`,
+        }),
+      );
     }
     this.composer.addPass(new OutputPass());
     this.composer.setPixelRatio(this.renderer.getPixelRatio());
@@ -362,20 +396,33 @@ export class GameRenderer {
 
   // ------------------------------------------------------------ vista previa
 
-  /** Muestra (o reconstruye) el coche del garaje sobre una plataforma giratoria. */
+  /** Muestra (o reconstruye) el coche del garaje sobre una plataforma iluminada. */
   setPreview(bodyId: CarBodyId, look: CarLook): void {
     this.clearPreview();
     const spec = CAR_BODIES[bodyId];
     const visual = buildCarMesh(spec, look, this.quality);
     visual.group.position.set(0, 0, spec.height / 2 + 4);
     const platform = new Mesh(
-      new CylinderGeometry(260, 280, 8, 40),
-      new MeshStandardMaterial({ color: 0x20263a, roughness: 0.4, metalness: 0.6 }),
+      new CylinderGeometry(270, 290, 8, 48),
+      new MeshStandardMaterial({ color: 0x2c3552, roughness: 0.35, metalness: 0.7 }),
     );
     platform.rotation.x = Math.PI / 2;
     platform.position.set(0, 0, 2);
-    this.simRoot.add(visual.group, platform);
-    this.preview = { visual, platform, time: this.preview?.time ?? 0 };
+    // Aro luminoso del color principal del coche.
+    const ring = new Mesh(
+      new TorusGeometry(262, 3.5, 8, 64),
+      new MeshBasicMaterial({ color: look.primary.clone().multiplyScalar(1.6) }),
+    );
+    ring.position.set(0, 0, 6.5);
+    // Luces propias del garaje: principal cálida, contraluz fría y relleno ambiental.
+    const lights = new Group();
+    const key = new DirectionalLight(0xfff1dc, 2.6);
+    key.position.set(380, -420, 520);
+    const rim = new DirectionalLight(0x9cc4ff, 1.8);
+    rim.position.set(-420, 360, 300);
+    lights.add(key, rim, new AmbientLight(0x8091b8, 0.9));
+    this.simRoot.add(visual.group, platform, ring, lights);
+    this.preview = { visual, platform, ring, lights, time: this.preview?.time ?? 0 };
     this.previewBodyId = bodyId;
     this.trails = [look.trail];
     this.explosions = ['classic'];
@@ -383,10 +430,37 @@ export class GameRenderer {
 
   clearPreview(): void {
     if (!this.preview) return;
-    this.simRoot.remove(this.preview.visual.group, this.preview.platform);
-    this.preview.visual.dispose();
-    this.preview.platform.geometry.dispose();
+    const p = this.preview;
+    this.simRoot.remove(p.visual.group, p.platform, p.ring, p.lights);
+    p.visual.dispose();
+    p.platform.geometry.dispose();
+    p.ring.geometry.dispose();
+    (p.ring.material as MeshBasicMaterial).dispose();
     this.preview = null;
+  }
+
+  /** Controles de la cámara del garaje: arrastre (giro/elevación), zoom, vistas fijas y giro automático. */
+  garageCamera(cmd: {
+    drag?: [number, number];
+    zoom?: number;
+    view?: 'front' | 'side' | 'rear' | 'top';
+    auto?: boolean;
+  }): void {
+    if (cmd.drag) {
+      this.pvAngle += cmd.drag[0] * 0.01;
+      this.pvPitch = Math.min(1.25, Math.max(0.04, this.pvPitch + cmd.drag[1] * 0.005));
+      this.pvAuto = false;
+    }
+    if (cmd.zoom) this.pvDist = Math.min(720, Math.max(260, this.pvDist + cmd.zoom));
+    if (cmd.view) {
+      // La cámara mira desde el azimut 0,7 rad: el ángulo del coche decide qué cara se ve.
+      this.pvAuto = false;
+      this.pvPitch = cmd.view === 'top' ? 1.2 : 0.22;
+      this.pvAngle = { front: 0.7, side: 0.7 - Math.PI / 2, rear: 0.7 + Math.PI, top: 0.7 }[
+        cmd.view
+      ];
+    }
+    if (cmd.auto !== undefined) this.pvAuto = cmd.auto;
   }
 
   get previewActive(): boolean {
@@ -406,7 +480,8 @@ export class GameRenderer {
     if (!p) return;
     p.time += dt;
     const spec = CAR_BODIES[this.previewBodyId];
-    const ang = p.time * 0.5;
+    if (this.pvAuto) this.pvAngle += dt * 0.5;
+    const ang = this.pvAngle;
     p.visual.group.rotation.z = ang;
     for (const f of p.visual.flames) {
       f.visible = true;
@@ -433,7 +508,12 @@ export class GameRenderer {
     this.stadium?.update(dt);
 
     const pose = this.tmpPose;
-    pose.position.set(Math.cos(0.7) * 420, Math.sin(0.7) * 420, 170);
+    const cp = Math.cos(this.pvPitch) * this.pvDist;
+    pose.position.set(
+      Math.cos(0.7) * cp,
+      Math.sin(0.7) * cp,
+      40 + Math.sin(this.pvPitch) * this.pvDist,
+    );
     pose.target.set(0, 0, 40);
     pose.fov = 40;
     this.applyPose(pose);

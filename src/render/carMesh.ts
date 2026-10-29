@@ -16,6 +16,7 @@ import {
   OctahedronGeometry,
   PlaneGeometry,
   Shape,
+  ShapeGeometry,
   SphereGeometry,
   TorusGeometry,
   Vector3,
@@ -43,6 +44,7 @@ export interface CarLook {
   trail: TrailStyle;
   antenna: AntennaStyle;
   decal: DecalStyle;
+  decalColor: Color;
 }
 
 export interface CarVisual {
@@ -85,6 +87,8 @@ interface Ctx {
   body: Material;
   trim: Material;
   dark: Material;
+  /** Material de las calcomanías (color propio). */
+  decal: Material;
   /** Añade una malla estática: se fusiona con las del mismo material (una sola llamada de dibujo). */
   add(mesh: Mesh): void;
 }
@@ -483,6 +487,8 @@ export function buildCarMesh(spec: CarBodySpec, look: CarLook, quality: Quality)
   const body = mk(quality, look.primary, 0.28, 0.5);
   const trim = mk(quality, look.secondary, 0.45, 0.3);
   const dark = mk(quality, 0x14171f, 0.6, 0.2);
+  const decalMat = mk(quality, look.decalColor, 0.4, 0.2);
+  decalMat.side = DoubleSide;
   const glass = mk(quality, 0x0b1424, 0.05, 0.85);
   const tireMat = mk(quality, 0x15171c, 0.9, 0);
   const rimMat = mk(
@@ -500,7 +506,21 @@ export function buildCarMesh(spec: CarBodySpec, look: CarLook, quality: Quality)
   const zt = H / 2;
   const X = (f: number): number => -L / 2 + f * L;
   const Z = (f: number): number => zb + f * (zt - zb);
-  const c: Ctx = { root, L, W, H, zb, zt, X, Z, body, trim, dark, add: (m) => baker.add(m) };
+  const c: Ctx = {
+    root,
+    L,
+    W,
+    H,
+    zb,
+    zt,
+    X,
+    Z,
+    body,
+    trim,
+    dark,
+    decal: decalMat,
+    add: (m) => baker.add(m),
+  };
   const toXZ = (pts: P[]): P[] => pts.map(([fx, fz]) => [X(fx), Z(fz)]);
 
   c.add(new Mesh(extruded(toXZ(shape.lower), W * shape.lowerWidth, 3), body));
@@ -684,7 +704,7 @@ export function buildCarMesh(spec: CarBodySpec, look: CarLook, quality: Quality)
 function addDecal(c: Ctx, style: DecalStyle, shape: BodyShape, spec: CarBodySpec): void {
   if (style === 'none') return;
   const half = (c.W * shape.lowerWidth) / 2;
-  const mat = c.trim;
+  const mat = c.decal;
   if (style === 'stripes') {
     // Dos franjas sobre el capó (siguiendo la pendiente), el techo y el maletero.
     const lower = shape.lower;
@@ -707,11 +727,11 @@ function addDecal(c: Ctx, style: DecalStyle, shape: BodyShape, spec: CarBodySpec
     for (const s of [-1, 1]) {
       for (const f of [0.3, 0.55, 0.8]) {
         const d = new Mesh(new CylinderGeometry(c.H * 0.1, c.H * 0.1, 1.5, 12), mat);
-        d.position.set(c.X(f), s * (half + 0.8), c.Z(0.2));
+        d.position.set(c.X(f), s * (half + 3.6), c.Z(0.2));
         c.add(d);
       }
     }
-  } else {
+  } else if (style === 'checker') {
     // Cuadros a lo largo de ambos lados.
     const n = 8;
     const h = (c.Z(0.3) - c.zb) * 0.32;
@@ -725,15 +745,159 @@ function addDecal(c: Ctx, style: DecalStyle, shape: BodyShape, spec: CarBodySpec
             1.5,
             h,
             c.X(0.15) + ((c.L * 0.7) / n) * i,
-            s * (half + 0.9),
+            s * (half + 3.7),
             c.zb + h * (0.7 + j),
             mat,
           );
         }
       }
     }
+  } else {
+    addSideDecal(c, style, shape);
   }
   void spec;
+}
+
+type Pt = [number, number];
+
+/** Región lateral decorable (coordenadas locales): del eje trasero al delantero y sobre la carrocería baja. */
+function sideArea(
+  c: Ctx,
+  shape: BodyShape,
+): { x0: number; x1: number; z0: number; z1: number; y: number } {
+  const top = Math.max(...shape.lower.filter(([x]) => x > 0.25 && x < 0.75).map(([, z]) => z));
+  const z0 = c.zb + (c.Z(top) - c.zb) * 0.06;
+  const z1 = c.zb + (c.Z(top) - c.zb) * 1.0;
+  return {
+    x0: c.X(0.27),
+    x1: c.X(0.74),
+    z0,
+    z1,
+    // 3 uu de bisel de la carrocería + 0,5 de separación para evitar z-fighting.
+    y: (c.W * shape.lowerWidth) / 2 + 3.5,
+  };
+}
+
+/** Añade un polígono (fracciones u,v del área lateral) a ambos costados. */
+function sidePoly(c: Ctx, area: ReturnType<typeof sideArea>, pts: Pt[]): void {
+  const sh = new Shape();
+  pts.forEach(([u, v], i) => {
+    const x = area.x0 + u * (area.x1 - area.x0);
+    const z = area.z0 + v * (area.z1 - area.z0);
+    if (i === 0) sh.moveTo(x, z);
+    else sh.lineTo(x, z);
+  });
+  for (const s of [-1, 1]) {
+    const g = new ShapeGeometry(sh);
+    g.rotateX(Math.PI / 2); // (x, y) → (x, z)
+    const mesh = new Mesh(g, c.decal);
+    mesh.position.y = s * area.y;
+    c.add(mesh);
+  }
+}
+
+const circlePts = (cx: number, cy: number, r: number, n = 14, rx = 1): Pt[] =>
+  Array.from({ length: n }, (_, i): Pt => {
+    const a = (i / n) * Math.PI * 2;
+    return [cx + Math.cos(a) * r * rx, cy + Math.sin(a) * r];
+  });
+
+const starPts = (cx: number, cy: number, r: number, rx: number): Pt[] =>
+  Array.from({ length: 10 }, (_, i): Pt => {
+    const a = -Math.PI / 2 + (i / 10) * Math.PI * 2;
+    const rr = i % 2 === 0 ? r : r * 0.42;
+    return [cx + Math.cos(a) * rr * rx, cy + Math.sin(a) * rr];
+  });
+
+function addSideDecal(c: Ctx, style: DecalStyle, shape: BodyShape): void {
+  const a = sideArea(c, shape);
+  // Relación de aspecto: las formas se dibujan con u en largo y v en alto; rx compensa para que sean redondas.
+  const rx = (a.z1 - a.z0) / (a.x1 - a.x0);
+  switch (style) {
+    case 'flames':
+      // Tres lenguas de fuego que nacen en el eje delantero y se alargan hacia atrás.
+      for (const [u0, h] of [
+        [0.0, 1.0],
+        [0.2, 0.8],
+        [0.38, 0.6],
+      ] as Pt[]) {
+        sidePoly(c, a, [
+          [1 - u0, 0],
+          [1 - u0 - 0.5 * (0.7 + h * 0.3), 0.18],
+          [1 - u0 - 0.36, 0.2 + h * 0.3],
+          [1 - u0 - 0.55, h * 0.62],
+          [1 - u0 - 0.28, h * 0.5],
+          [1 - u0 - 0.2, h * 0.95],
+          [1 - u0 - 0.06, h * 0.45],
+          [1 - u0, 0.25],
+        ]);
+      }
+      break;
+    case 'bolt':
+      sidePoly(c, a, [
+        [0.52, 1],
+        [0.3, 0.52],
+        [0.46, 0.52],
+        [0.34, 0],
+        [0.7, 0.62],
+        [0.52, 0.62],
+        [0.66, 1],
+      ]);
+      break;
+    case 'stars':
+      for (const [u, r] of [
+        [0.25, 0.3],
+        [0.5, 0.42],
+        [0.75, 0.3],
+      ] as Pt[])
+        sidePoly(c, a, starPts(u, 0.5, r, rx));
+      break;
+    case 'chevrons':
+      for (let i = 0; i < 4; i++) {
+        const u = 0.18 + i * 0.17;
+        sidePoly(c, a, [
+          [u, 0],
+          [u + 0.12, 0.5],
+          [u, 1],
+          [u + 0.07, 1],
+          [u + 0.19, 0.5],
+          [u + 0.07, 0],
+        ]);
+      }
+      break;
+    case 'racing':
+      // Banda horizontal y óvalo con un «7» geométrico para el dorsal.
+      sidePoly(c, a, [
+        [0, 0.08],
+        [1, 0.08],
+        [1, 0.2],
+        [0, 0.2],
+      ]);
+      sidePoly(c, a, circlePts(0.52, 0.62, 0.34, 18, rx * 0.9));
+      break;
+    case 'tiger':
+      for (let i = 0; i < 6; i++) {
+        const u = 0.08 + i * 0.15;
+        sidePoly(c, a, [
+          [u, 1],
+          [u + 0.07, 1],
+          [u + 0.13, 0.5 - (i % 2) * 0.1],
+          [u + 0.06, 0.02 + (i % 3) * 0.06],
+          [u + 0.02, 0.45],
+        ]);
+      }
+      break;
+    case 'hex':
+      for (let i = 0; i < 4; i++) {
+        for (let j = 0; j < 2; j++) {
+          const u = 0.16 + i * 0.22 + (j % 2) * 0.11;
+          sidePoly(c, a, circlePts(u, 0.3 + j * 0.42, 0.2, 6, rx));
+        }
+      }
+      break;
+    default:
+      break;
+  }
 }
 
 function addAntenna(c: Ctx, look: CarLook, shape: BodyShape): void {

@@ -43,7 +43,7 @@ export class Hud {
   /** Texto de ayuda de controles según el esquema activo. */
   setScheme(mouse: boolean): void {
     this.hint.innerHTML = mouse
-      ? `<b>W/S</b> acelerar / frenar · <b>Ratón</b> girar · <b>Clic izq.</b> turbo ·
+      ? `<b>W/S</b> acelerar / frenar · <b>Ratón</b> girar (clic para capturarlo) · <b>Clic izq.</b> turbo ·
         <b>Clic der.</b> saltar (otra vez + dirección = flip) · <b>Ctrl/Z</b> derrape · <b>Q/E</b> giro aéreo ·
         <b>C</b> cámara de pelota · <b>V</b> mirar atrás · <b>R</b> reiniciar · <b>F3</b> depuración`
       : `<b>WASD</b> conducir · <b>Espacio</b> saltar (otra vez + dirección = flip) · <b>Shift</b> turbo ·

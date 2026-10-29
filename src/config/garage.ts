@@ -5,7 +5,18 @@ export type WheelStyle = 'classic' | 'spokes' | 'chrome' | 'turbine' | 'neon';
 export type TrailStyle = 'flame' | 'plasma' | 'toxic' | 'rainbow' | 'sparkle';
 export type GoalExplosion = 'classic' | 'fireworks' | 'confetti';
 export type AntennaStyle = 'none' | 'ball' | 'flag' | 'star';
-export type DecalStyle = 'none' | 'stripes' | 'dots' | 'checker';
+export type DecalStyle =
+  | 'none'
+  | 'stripes'
+  | 'dots'
+  | 'checker'
+  | 'flames'
+  | 'bolt'
+  | 'stars'
+  | 'chevrons'
+  | 'racing'
+  | 'tiger'
+  | 'hex';
 
 export interface GarageSettings {
   name: string;
@@ -18,6 +29,8 @@ export interface GarageSettings {
   explosion: GoalExplosion;
   antenna: AntennaStyle;
   decal: DecalStyle;
+  /** Color de la calcomanía (#rrggbb). */
+  decalColor: string;
 }
 
 export const DEFAULT_GARAGE: GarageSettings = {
@@ -30,6 +43,7 @@ export const DEFAULT_GARAGE: GarageSettings = {
   explosion: 'classic',
   antenna: 'none',
   decal: 'none',
+  decalColor: '#ffffff',
 };
 
 export const BODY_IDS: readonly CarBodyId[] = [
@@ -88,6 +102,13 @@ export const DECALS: Record<DecalStyle, string> = {
   stripes: 'Rayas',
   dots: 'Lunares',
   checker: 'Cuadros',
+  flames: 'Llamas',
+  bolt: 'Rayo',
+  stars: 'Estrellas',
+  chevrons: 'Flechas',
+  racing: 'Competición',
+  tiger: 'Tigre',
+  hex: 'Panal',
 };
 
 /** Paleta rápida de colores del garaje. */

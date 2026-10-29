@@ -25,6 +25,7 @@ export function playerLook(g: GarageSettings, team: 0 | 1): CarLook {
     trail: g.trail,
     antenna: g.antenna,
     decal: g.decal,
+    decalColor: new Color(g.decalColor),
   };
 }
 
@@ -42,6 +43,7 @@ export function botLook(carId: number, team: 0 | 1): CarLook {
     trail: pick<TrailStyle>(TRAILS, carId * 2 + team),
     antenna: pick<AntennaStyle>(ANTENNAS, carId + 2),
     decal: pick<DecalStyle>(DECALS, carId + 1),
+    decalColor: new Color(0xf4f6ff),
   };
 }
 

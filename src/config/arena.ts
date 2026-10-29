@@ -17,8 +17,8 @@ export const ARENA = {
     halfWidth: 893,
     /** Altura interior hasta el larguero. */
     height: 643,
-    /** Fondo de la portería detrás de la línea de gol. */
-    depth: 880,
+    /** Fondo de la portería detrás de la línea de gol (menos profunda que el estándar). */
+    depth: 560,
     /** Radio visual de postes y larguero. */
     postRadius: 22,
     /** Origen (|y|) a partir del cual existe el hueco de portería (recorta la rampa). */

@@ -39,6 +39,7 @@ export function sanitizeGarage(raw: unknown): GarageSettings {
     explosion: pick(r.explosion, Object.keys(EXPLOSIONS), d.explosion),
     antenna: pick(r.antenna, Object.keys(ANTENNAS), d.antenna),
     decal: pick(r.decal, Object.keys(DECALS), d.decal),
+    decalColor: color(r.decalColor, d.decalColor),
   };
 }
 

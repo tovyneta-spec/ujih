@@ -45,6 +45,13 @@ export interface MenuCallbacks {
   garageChange(g: GarageSettings): void;
   garageExplosion(style: GoalExplosion): void;
   garageExit(): void;
+  /** Cámara orbital de la vista previa del garaje. */
+  garageCam(cmd: {
+    drag?: [number, number];
+    zoom?: number;
+    view?: 'front' | 'side' | 'rear' | 'top';
+    auto?: boolean;
+  }): void;
   audioChange(a: AudioSettings): void;
   /** Ajustes de cámara y controles modificados (ya validados; el juego los guarda y aplica). */
   settingsChange(s: PlayerSettings): void;
@@ -309,6 +316,7 @@ export class Menus {
   private settingsTab: 'camera' | 'controls' = 'camera';
   private settingsBack: 'main' | 'pause' = 'main';
   private rebinding: Action | null = null;
+  private garageTab: 'car' | 'paint' | 'decal' | 'wheels' | 'fx' = 'car';
 
   constructor(
     parent: HTMLElement,
@@ -321,6 +329,29 @@ export class Menus {
     // Captura de la nueva tecla al reasignar: va en fase de captura para adelantarse a todo lo demás.
     window.addEventListener('keydown', (e) => this.onRebindKey(e), true);
     window.addEventListener('keydown', (e) => this.onKey(e));
+    // Vista previa del garaje: arrastrar para girar/inclinar y rueda para acercar.
+    let drag: { x: number; y: number } | null = null;
+    const outside = (t: EventTarget | null): boolean =>
+      !(t as HTMLElement | null)?.closest('.panel, .garage-tools');
+    this.root.addEventListener('pointerdown', (e) => {
+      if (this.screen === 'garage' && outside(e.target)) drag = { x: e.clientX, y: e.clientY };
+    });
+    window.addEventListener('pointermove', (e) => {
+      if (!drag || this.screen !== 'garage') return;
+      this.cb.garageCam({ drag: [e.clientX - drag.x, e.clientY - drag.y] });
+      drag = { x: e.clientX, y: e.clientY };
+    });
+    window.addEventListener('pointerup', () => (drag = null));
+    this.root.addEventListener(
+      'wheel',
+      (e) => {
+        if (this.screen === 'garage' && outside(e.target)) {
+          e.preventDefault();
+          this.cb.garageCam({ zoom: e.deltaY * 0.4 });
+        }
+      },
+      { passive: false },
+    );
     // Sonidos de interfaz por delegación.
     this.root.addEventListener('click', (e) => {
       if ((e.target as HTMLElement).closest('button')) this.cb.ui('click');
@@ -548,7 +579,7 @@ export class Menus {
     this.open('main');
   }
 
-  private swatches(name: 'primary' | 'secondary', current: string): string {
+  private swatches(name: 'primary' | 'secondary' | 'decalColor', current: string): string {
     const items = PALETTE.map(
       (c) =>
         `<button type="button" class="sw ${c === current ? 'on' : ''}" data-sw="${name}" data-c="${c}" style="background:${c}" aria-label="${c}"></button>`,
@@ -558,6 +589,7 @@ export class Menus {
 
   private renderGarage(): void {
     const g = this.garage;
+    const tab = this.garageTab;
     const seg = (
       name: string,
       label: string,
@@ -570,49 +602,101 @@ export class Menus {
         entries.map(([value, text]) => ({ value, label: text })),
         current,
       );
-    this.render(`
-      <h2>Garaje</h2>
-      <label class="field"><span>Nombre del jugador</span><input type="text" maxlength="16" data-name value="${g.name}" /></label>
-      ${seg(
-        'body',
-        'Carrocería',
-        BODY_IDS.map((id) => [id, CAR_BODIES[id].name]),
-        g.body,
-      )}
-      <div class="row"><span>Color primario</span>${this.swatches('primary', g.primary)}</div>
-      <div class="row"><span>Color secundario</span>${this.swatches('secondary', g.secondary)}</div>
-      ${seg('wheels', 'Ruedas', Object.entries(WHEEL_STYLES), g.wheels)}
-      ${seg(
+    const maxOf = (k: 'length' | 'width' | 'height'): number =>
+      Math.max(...BODY_IDS.map((id) => CAR_BODIES[id][k]));
+    const bar = (v: number, max: number): string =>
+      `<i style="width:${Math.round((v / max) * 100)}%"></i>`;
+    const bodyCards = BODY_IDS.map((id) => {
+      const b = CAR_BODIES[id];
+      return `<button type="button" class="card ${id === g.body ? 'on' : ''}" data-seg="body" data-v="${id}">
+        <b>${b.name}</b>
+        <span class="stat"><em>Largo</em><span class="bar">${bar(b.length, maxOf('length'))}</span></span>
+        <span class="stat"><em>Ancho</em><span class="bar">${bar(b.width, maxOf('width'))}</span></span>
+        <span class="stat"><em>Alto</em><span class="bar">${bar(b.height, maxOf('height'))}</span></span>
+      </button>`;
+    }).join('');
+    const tabs: [typeof tab, string][] = [
+      ['car', 'Coche'],
+      ['paint', 'Pintura'],
+      ['decal', 'Calcomanías'],
+      ['wheels', 'Ruedas'],
+      ['fx', 'Efectos'],
+    ];
+    const body: Record<typeof tab, string> = {
+      car: `<label class="field"><span>Nombre del jugador</span><input type="text" maxlength="16" data-name value="${g.name}" /></label>
+        <div class="cards">${bodyCards}</div>`,
+      paint: `<div class="row"><span>Color primario</span>${this.swatches('primary', g.primary)}</div>
+        <div class="row"><span>Color secundario</span>${this.swatches('secondary', g.secondary)}</div>
+        <div class="row"><span>Color de la calcomanía</span>${this.swatches('decalColor', g.decalColor)}</div>`,
+      decal: `${seg('decal', 'Diseño', Object.entries(DECALS), g.decal)}
+        <div class="row"><span>Color de la calcomanía</span>${this.swatches('decalColor', g.decalColor)}</div>`,
+      wheels: seg('wheels', 'Ruedas', Object.entries(WHEEL_STYLES), g.wheels),
+      fx: `${seg(
         'trail',
         'Estela de turbo',
         Object.entries(TRAILS).map(([k, v]) => [k, v.name]),
         g.trail,
       )}
-      ${seg('explosion', 'Explosión de gol', Object.entries(EXPLOSIONS), g.explosion)}
-      ${seg('antenna', 'Antena', Object.entries(ANTENNAS), g.antenna)}
-      ${seg('decal', 'Calcomanía', Object.entries(DECALS), g.decal)}
+        ${seg('explosion', 'Explosión de gol', Object.entries(EXPLOSIONS), g.explosion)}
+        ${seg('antenna', 'Antena', Object.entries(ANTENNAS), g.antenna)}`,
+    };
+    this.render(`
+      <h2>Garaje</h2>
+      <div class="segs tabs">${tabs
+        .map(
+          ([k, label]) =>
+            `<button type="button" class="seg ${k === tab ? 'on' : ''}" data-gtab="${k}">${label}</button>`,
+        )
+        .join('')}</div>
+      <div class="garage-body">${body[tab]}</div>
       <div class="buttons">
+        <button class="btn" data-go="random">🎲 Aleatorio</button>
         <button class="btn" data-go="reset">Restablecer</button>
         <button class="btn" data-go="boom">Probar explosión</button>
         <button class="btn primary" data-go="back">Guardar y volver</button>
       </div>`);
+    // Herramientas de la vista 3D (a la derecha, bajo el coche).
+    const tools = document.createElement('div');
+    tools.className = 'garage-tools';
+    tools.innerHTML = `<span class="gt-hint">Arrastra para girar · rueda para acercar</span>
+      <div class="segs">
+        <button type="button" class="seg" data-view="front">Frente</button>
+        <button type="button" class="seg" data-view="side">Lateral</button>
+        <button type="button" class="seg" data-view="rear">Trasera</button>
+        <button type="button" class="seg" data-view="top">Arriba</button>
+        <button type="button" class="seg" data-view="auto">⟳ Giro</button>
+      </div>`;
+    this.root.appendChild(tools);
+    tools.querySelectorAll<HTMLElement>('[data-view]').forEach((b) =>
+      b.addEventListener('click', () => {
+        const v = b.dataset.view as string;
+        if (v === 'auto') this.cb.garageCam({ auto: true });
+        else this.cb.garageCam({ view: v as 'front' | 'side' | 'rear' | 'top' });
+      }),
+    );
+    this.root.querySelectorAll<HTMLElement>('[data-gtab]').forEach((b) =>
+      b.addEventListener('click', () => {
+        this.garageTab = b.dataset.gtab as typeof tab;
+        this.renderGarage();
+      }),
+    );
     const apply = (patch: Partial<GarageSettings>): void => {
       this.garage = sanitizeGarage({ ...this.garage, ...patch });
       saveGarage(this.garage);
       this.cb.garageChange(this.garage);
     };
-    this.root.querySelectorAll<HTMLElement>('.seg').forEach((b) =>
+    this.root.querySelectorAll<HTMLElement>('.seg[data-seg], .card[data-seg]').forEach((b) =>
       b.addEventListener('click', () => {
         const name = b.dataset.seg as string;
         this.root
-          .querySelectorAll<HTMLElement>(`.seg[data-seg=${name}]`)
+          .querySelectorAll<HTMLElement>(`[data-seg=${name}]`)
           .forEach((x) => x.classList.toggle('on', x === b));
         apply({ [name]: b.dataset.v } as Partial<GarageSettings>);
       }),
     );
     this.root.querySelectorAll<HTMLElement>('.sw').forEach((b) =>
       b.addEventListener('click', () => {
-        const name = b.dataset.sw as 'primary' | 'secondary';
+        const name = b.dataset.sw as 'primary' | 'secondary' | 'decalColor';
         const input = this.root.querySelector<HTMLInputElement>(`input[data-pick=${name}]`);
         if (input) input.value = b.dataset.c as string;
         this.root
@@ -634,6 +718,21 @@ export class Menus {
         apply({ name: (e.target as HTMLInputElement).value });
       });
     this.on('[data-go=boom]', () => this.cb.garageExplosion(this.garage.explosion));
+    this.on('[data-go=random]', () => {
+      const pickOne = <T>(list: readonly T[]): T => list[Math.floor(Math.random() * list.length)];
+      apply({
+        body: pickOne(BODY_IDS),
+        primary: pickOne(PALETTE),
+        secondary: pickOne(PALETTE),
+        decalColor: pickOne(PALETTE),
+        wheels: pickOne(Object.keys(WHEEL_STYLES)) as GarageSettings['wheels'],
+        trail: pickOne(Object.keys(TRAILS)) as GarageSettings['trail'],
+        explosion: pickOne(Object.keys(EXPLOSIONS)) as GarageSettings['explosion'],
+        antenna: pickOne(Object.keys(ANTENNAS)) as GarageSettings['antenna'],
+        decal: pickOne(Object.keys(DECALS)) as GarageSettings['decal'],
+      });
+      this.renderGarage();
+    });
     this.on('[data-go=reset]', () => {
       this.garage = { ...DEFAULT_GARAGE };
       saveGarage(this.garage);
@@ -757,7 +856,7 @@ export class Menus {
         ctl.scheme === 'mouse'
           ? `<label class="field slider"><span>Sensibilidad del ratón <b data-mousesens>${ctl.mouseSensitivity.toFixed(1)}</b></span>
               <input type="range" min="0.5" max="2" step="0.1" value="${ctl.mouseSensitivity}" data-sens /></label>
-             <p class="note">Mueve el ratón a la izquierda o la derecha del centro de la pantalla para girar.</p>`
+             <p class="note">Haz clic en la partida para capturar el ratón (desaparece el cursor). Esc lo libera y pausa el juego.</p>`
           : `<div class="keys">${keyRows}</div>
              <div class="buttons"><button class="btn" data-go="keyreset">Restaurar teclas</button></div>`
       }`;

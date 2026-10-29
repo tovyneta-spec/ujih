@@ -1,5 +1,6 @@
 // Entrada de teclado y ratón: ejes digitales suavizados con rampa, captura sólo con el juego enfocado.
-// Esquema «ratón»: el ratón gira el coche, clic izquierdo = turbo, clic derecho = salto.
+// Esquema «ratón»: el movimiento relativo del ratón (con el puntero bloqueado) gira el coche y se
+// recentra solo al dejar de moverlo; clic izquierdo = turbo, clic derecho = salto.
 import { DEFAULT_KEYS, KEYBOARD_RAMP } from '../config';
 import type { Action, ControlScheme } from '../config';
 import { neutralInput } from '../sim';
@@ -11,12 +12,23 @@ export class KeyboardInput {
   private bindings: Record<Action, readonly string[]>;
   private captured = false;
   /** Si es false se ignora el teclado (menús abiertos): no bloquea teclas del navegador. */
-  enabled = true;
+  private _enabled = true;
+  get enabled(): boolean {
+    return this._enabled;
+  }
+  set enabled(v: boolean) {
+    this._enabled = v;
+    if (!v) this.unlockPointer();
+  }
+  /** Se llama cuando el jugador libera el puntero (Esc) con el juego en marcha. */
+  onLockLost: (() => void) | null = null;
+  private lastMove = 0;
   private steerAxis = 0;
   /** Esquema activo y estado del ratón (eje horizontal normalizado −1..1 y botones). */
   scheme: ControlScheme = 'keyboard';
   mouseSensitivity = 1;
   private mouseX = 0;
+  private mouseSteerPerPx = 0.0045;
   private mouseLeft = false;
   private mouseRight = false;
   private readonly out: CarInput = neutralInput();
@@ -39,6 +51,10 @@ export class KeyboardInput {
     window.addEventListener('pointerup', (e) => this.onMouseButton(e, false));
     window.addEventListener('pointercancel', () => this.releaseMouse());
     window.addEventListener('pointermove', (e) => this.onMouseMove(e));
+    document.addEventListener('pointerlockchange', () => {
+      if (document.pointerLockElement !== this.root && this.scheme === 'mouse' && this._enabled)
+        this.onLockLost?.();
+    });
     window.addEventListener('keydown', (e) => this.onKey(e, true));
     window.addEventListener('keyup', (e) => this.onKey(e, false));
   }
@@ -76,16 +92,37 @@ export class KeyboardInput {
     if (isDown && !this.enabled) return;
     if (e.button === 0) this.mouseLeft = isDown;
     else if (e.button === 2) this.mouseRight = isDown;
-    if (isDown && this.enabled) e.preventDefault();
+    if (isDown && this.enabled) {
+      e.preventDefault();
+      this.lockPointer();
+    }
   }
 
   private onMouseMove(e: PointerEvent): void {
-    if (this.scheme !== 'mouse') return;
-    const r = this.root.getBoundingClientRect();
-    if (r.width <= 0) return;
-    // Posición respecto al centro de la pantalla: media anchura del centro = giro completo ≈ 45 %.
-    const nx = ((e.clientX - (r.left + r.width / 2)) / (r.width / 2)) * 2.2 * this.mouseSensitivity;
-    this.mouseX = Math.abs(nx) < 0.04 ? 0 : Math.max(-1, Math.min(1, nx));
+    if (this.scheme !== 'mouse' || !this._enabled) return;
+    // Movimiento relativo: cada píxel desplaza el volante; la rueda se recentra sola en poll().
+    this.mouseX = Math.max(
+      -1,
+      Math.min(1, this.mouseX + e.movementX * this.mouseSteerPerPx * this.mouseSensitivity),
+    );
+    if (e.movementX !== 0) this.lastMove = performance.now();
+  }
+
+  /** Bloquea el puntero en la raíz del juego (necesita un gesto del usuario). */
+  private lockPointer(): void {
+    if (document.pointerLockElement === this.root) return;
+    try {
+      void (this.root.requestPointerLock() as unknown as Promise<void> | undefined)?.catch?.(
+        () => undefined,
+      );
+    } catch {
+      /* el navegador no permite bloquear el puntero aquí */
+    }
+  }
+
+  private unlockPointer(): void {
+    this.mouseX = 0;
+    if (document.pointerLockElement === this.root) document.exitPointerLock();
   }
 
   private onKey(e: KeyboardEvent, isDown: boolean): void {
@@ -128,13 +165,13 @@ export class KeyboardInput {
   poll(dt: number): CarInput {
     const t = (this.isDown('throttleUp') ? 1 : 0) - (this.isDown('throttleDown') ? 1 : 0);
     const mouse = this.scheme === 'mouse';
-    const s = mouse
-      ? this.mouseX
-      : (this.isDown('steerRight') ? 1 : 0) - (this.isDown('steerLeft') ? 1 : 0);
+    const s = mouse ? 0 : (this.isDown('steerRight') ? 1 : 0) - (this.isDown('steerLeft') ? 1 : 0);
     const r = (this.isDown('rollRight') ? 1 : 0) - (this.isDown('rollLeft') ? 1 : 0);
     // La dirección en suelo se suaviza con rampa; el gas y los ejes aéreos (y por tanto la
     // dirección del flip) son digitales directos para no retrasar la respuesta.
-    this.steerAxis = mouse ? s : this.ramp(this.steerAxis, s, dt);
+    if (mouse && performance.now() - this.lastMove > 80) this.mouseX *= Math.exp(-dt * 5.5);
+    const ax = mouse ? this.mouseX : s;
+    this.steerAxis = mouse ? ax : this.ramp(this.steerAxis, s, dt);
 
     const o = this.out;
     const handbrake = this.isDown('handbrake');
@@ -142,8 +179,8 @@ export class KeyboardInput {
     o.steer = this.steerAxis;
     // En el aire: W/S = cabeceo (W morro abajo), A/D = guiñada; con freno de mano A/D = alabeo.
     o.pitch = -t;
-    o.yaw = handbrake ? 0 : s;
-    o.roll = Math.max(-1, Math.min(1, r + (handbrake ? s : 0)));
+    o.yaw = handbrake ? 0 : ax;
+    o.roll = Math.max(-1, Math.min(1, r + (handbrake ? ax : 0)));
     o.jump = mouse ? this.mouseRight : this.isDown('jump');
     o.boost = mouse ? this.mouseLeft : this.isDown('boost');
     o.handbrake = handbrake;

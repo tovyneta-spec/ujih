@@ -406,7 +406,8 @@ export function buildArena(theme: ThemeSpec, q: Quality): ArenaVisual {
     // Carcasa opaca detrás de la red: cierra el fondo, los laterales y el techo de la portería
     // para que no se vea el exterior del estadio a través de la malla.
     const o = 8;
-    const ps = ARENA.goal.pocketStart;
+    // La carcasa empieza en la línea de gol: no debe invadir el terreno de juego.
+    const ps = HY;
     const sideLen = HY + GD - ps + o;
     const sideY = s * (ps - o + sideLen / 2);
     const shell = [

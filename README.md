@@ -105,10 +105,14 @@ npm run format     # Prettier
 - **Ajustes** (menú principal y pausa): cámara (FOV, distancia, altura, ángulo, rigidez, giro, transición y
   sacudida) y controles. Se guardan en el navegador.
 - **Esquemas de control**: _Teclado_ (WASD, reasignable tecla a tecla) y **67tetitasdani**: `W` acelera,
-  `S` frena y marcha atrás, el ratón gira a izquierda/derecha (posición respecto al centro, con
-  sensibilidad ajustable), clic izquierdo = turbo, clic derecho = salto. `Q/E`, `Ctrl/Z`, `C`, `V` siguen igual.
+  `S` frena y marcha atrás, el ratón gira moviéndolo a izquierda/derecha (puntero bloqueado con un clic, movimiento relativo;
+  el volante se recentra solo; sensibilidad ajustable; Esc libera el ratón y pausa), clic izquierdo = turbo, clic derecho = salto. `Q/E`, `Ctrl/Z`, `C`, `V` siguen igual.
 - **Formato 4v4** (local y online) y **9 carrocerías**: se suman _Víbora_ (cuña baja), _Titán_ (camioneta
   alta con ruedas enormes) y _Burbuja_ (microcoche con cúpula).
+- **Garaje** con pestañas (coche, pintura, calcomanías, ruedas, efectos), tarjetas de carrocería con
+  estadísticas, botón aleatorio, luces propias y cámara orbital (arrastrar, rueda, vistas fijas, giro automático).
+  **11 calcomanías** (rayas, lunares, cuadros, llamas, rayo, estrellas, flechas, competición, tigre, panal) con color propio.
+- Porterías menos profundas (560 uu) y sin carcasa que invada el campo; césped con grano y bandas, viñeta suave.
 - Tras un gol la pelota desaparece con la explosión y vuelve en el saque; el fondo de las porterías es opaco.
 - Física: la pelota se integra en subpasos contra el estadio a alta velocidad (menos penetración en
   esquinas y rampas). Gráficos: faros/piloto con el color del equipo y halo de la pelota que crece con la velocidad.

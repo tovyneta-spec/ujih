@@ -98,6 +98,9 @@ export class Game {
     this.adaptive = new URLSearchParams(location.search).get('adapt') !== '0';
     this.renderer.setRenderScale(this.governor.scale);
     this.keyboard = new KeyboardInput(root);
+    this.keyboard.onLockLost = () => {
+      if (this.state === 'playing') this.pause();
+    };
     this.hud = new Hud(hudRoot);
     this.matchHud = new MatchHud(hudRoot, (a) => this.onEndAction(a));
     this.extras = new HudExtras(hudRoot);
@@ -115,6 +118,7 @@ export class Game {
       garageChange: (g) => this.changeGarage(g),
       garageExplosion: (style) => this.renderer.previewExplosion(style),
       garageExit: () => this.exitGarage(),
+      garageCam: (cmd) => this.renderer.garageCamera(cmd),
       audioChange: (a) => this.audio.setSettings(a),
       settingsChange: (s) => this.applySettings(s, true),
       ui: (k) => this.audio.ui(k),

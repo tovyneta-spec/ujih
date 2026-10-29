@@ -47,6 +47,28 @@ export function makeFloorTexture(theme: ThemeSpec): CanvasTexture {
   g.fillStyle = go;
   g.fillRect(0, 0, W, H / 2);
 
+  // Césped/pista: bandas de corte alternas, grano fino y desgaste suave (sólo textura: coste 0 en ejecución).
+  for (let i = 0; i < stripes; i++) {
+    g.fillStyle = i % 2 === 0 ? 'rgba(255,255,255,0.04)' : 'rgba(0,0,0,0.05)';
+    g.fillRect(0, (H / stripes) * i, W, H / stripes + 1);
+  }
+  let seed = 12345;
+  const rnd = (): number => {
+    seed = (seed * 1664525 + 1013904223) >>> 0;
+    return seed / 4294967296;
+  };
+  for (let i = 0; i < 26000; i++) {
+    g.fillStyle = rnd() < 0.5 ? 'rgba(255,255,255,0.045)' : 'rgba(0,0,0,0.06)';
+    g.fillRect(rnd() * W, rnd() * H, 1 + rnd() * 2, 1 + rnd() * 2);
+  }
+  const wear = g.createRadialGradient(W / 2, H / 2, 40, W / 2, H / 2, W * 0.85);
+  wear.addColorStop(0, 'rgba(255,255,255,0.07)');
+  wear.addColorStop(1, 'rgba(0,0,0,0.12)');
+  g.fillStyle = wear;
+  g.fillRect(0, 0, W, H);
+
+  g.shadowColor = theme.line;
+  g.shadowBlur = 6;
   g.strokeStyle = theme.line;
   g.lineWidth = 3;
   g.beginPath();
@@ -73,6 +95,7 @@ export function makeFloorTexture(theme: ThemeSpec): CanvasTexture {
       900 * k,
     );
   }
+  g.shadowBlur = 0;
   return finish(c);
 }
 

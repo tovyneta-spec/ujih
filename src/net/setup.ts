@@ -70,6 +70,7 @@ export function botGarage(carId: number, team: 0 | 1, name: string): GarageSetti
     trail: nth(TRAILS, carId * 2 + team),
     antenna: nth(ANTENNAS, carId + 2),
     decal: nth(DECALS, carId + 1),
+    decalColor: '#f4f6ff',
     explosion: nth(EXPLOSIONS, carId + team),
   };
 }
