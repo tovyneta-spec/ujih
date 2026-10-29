@@ -29,6 +29,9 @@ export class MatchHud {
   /** Nombres visibles por id de coche. */
   names: string[] = [];
   humanId = 0;
+  humanTeam: 0 | 1 = 0;
+  /** Texto extra de la serie para la pantalla final. */
+  seriesText = '';
 
   constructor(parent: HTMLElement) {
     this.root = document.createElement('div');
@@ -109,6 +112,9 @@ export class MatchHud {
         if (e.attackerId === this.humanId) this.toast('¡Demolición!');
         else if (e.victimId === this.humanId) this.toast('Te han demolido');
         break;
+      case 'chat':
+        this.toast(`${this.name(e.carId)}: ${e.text}`);
+        break;
       case 'matchEnd':
         this.showEnd(world.match, e.winner);
         break;
@@ -118,7 +124,7 @@ export class MatchHud {
   }
 
   private showEnd(match: Match, winner: -1 | 0 | 1): void {
-    const humanTeam = 0;
+    const humanTeam = this.humanTeam;
     const title = winner === -1 ? 'Empate' : winner === humanTeam ? '¡Victoria!' : 'Derrota';
     let best = -1;
     let mvp = 0;
@@ -137,7 +143,8 @@ export class MatchHud {
     this.end.hidden = false;
     this.end.innerHTML = `<h2>${title}</h2><div class="final">${match.score[0]} – ${match.score[1]}</div>
       <table><tr><th></th><th>Pts</th><th>Goles</th><th>Asist.</th><th>Paradas</th><th>Tiros</th><th>Demol.</th></tr>${rows}</table>
-      <p>Pulsa <b>R</b> para la revancha</p>`;
+      ${this.seriesText ? `<p class="series">${this.seriesText}</p>` : ''}
+      <p>Pulsa <b>R</b> para ${this.seriesText.includes('Serie ganada') || this.seriesText.includes('Serie perdida') ? 'una nueva serie' : 'continuar'}</p>`;
     this.banner.hidden = true;
   }
 

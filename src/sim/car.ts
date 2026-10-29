@@ -6,6 +6,25 @@ import { copyInput, neutralInput } from './input';
 import type { CarInput } from './input';
 import { Quat, Vec3, clamp } from './math';
 
+/** Reglas globales que afectan al coche (mutadores). */
+export interface CarRules {
+  gravityScale: number;
+  boostMode: 'normal' | 'none' | 'unlimited' | 'recharge';
+  boostStrength: number;
+  /** Turbo con el que se empieza cada saque / reaparición. */
+  startBoost: number;
+}
+
+export const DEFAULT_RULES: CarRules = {
+  gravityScale: 1,
+  boostMode: 'normal',
+  boostStrength: 1,
+  startBoost: CAR.boost.start,
+};
+
+/** Recarga de turbo (uu/s) en el modo "recarga". */
+const RECHARGE_RATE = 10;
+
 const n = new Vec3();
 const f = new Vec3();
 const left = new Vec3();
@@ -200,7 +219,7 @@ export class Car {
   }
 
   /** Un paso de control y movimiento (sin resolver colisiones). */
-  step(dt: number): void {
+  step(dt: number, rules: CarRules = DEFAULT_RULES): void {
     const inp = this.input;
     const c = CAR;
     this.updateAxes();
@@ -231,7 +250,7 @@ export class Car {
 
     let ax = 0;
     let ay = 0;
-    let az = PHYSICS.gravity;
+    let az = PHYSICS.gravity * rules.gravityScale;
     if (this.isJumping) {
       this.jumpTimer += dt;
       if (this.jumpTimer < c.jump.holdTime) {
@@ -244,13 +263,18 @@ export class Car {
     // --- Turbo ---
     if (inp.boost && !this.prevBoostInput && this.boost > 0) this.boostTimer = c.boost.minDuration;
     this.prevBoostInput = inp.boost;
-    this.boosting = this.boost > 0 && (inp.boost || this.boostTimer > 0);
+    const noBoost = rules.boostMode === 'none';
+    this.boosting = !noBoost && this.boost > 0 && (inp.boost || this.boostTimer > 0);
     if (this.boostTimer > 0) this.boostTimer -= dt;
     if (this.boosting) {
-      this.boost = Math.max(0, this.boost - c.boost.useRate * dt);
-      ax += this.forward.x * c.boost.accel;
-      ay += this.forward.y * c.boost.accel;
-      az += this.forward.z * c.boost.accel;
+      if (rules.boostMode !== 'unlimited')
+        this.boost = Math.max(0, this.boost - c.boost.useRate * dt);
+      const a = c.boost.accel * rules.boostStrength;
+      ax += this.forward.x * a;
+      ay += this.forward.y * a;
+      az += this.forward.z * a;
+    } else if (rules.boostMode === 'recharge') {
+      this.boost = Math.min(c.boost.max, this.boost + RECHARGE_RATE * dt);
     }
 
     this.vel.x += ax * dt;

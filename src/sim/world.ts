@@ -1,8 +1,9 @@
 import { CAR_BODIES, CAR_CAR, KICKOFF_SPOTS, PHYSICS } from '../config';
-import type { CarBodyId, MatchConfig } from '../config';
+import type { CarBodyId, MatchConfig, ResolvedMutators } from '../config';
 import { goalScoredBy } from './arena';
 import { Ball } from './ball';
-import { Car } from './car';
+import { Car, DEFAULT_RULES } from './car';
+import type { CarRules } from './car';
 import { applyBump, bumpInfo, collideBallCar, collideCarCar, resolveCarArena } from './collisions';
 import type { BallCarHit, CarCarContact } from './collisions';
 import type { CarInput } from './input';
@@ -34,6 +35,7 @@ export type SimEvent =
   | { type: 'demolition'; attackerId: number; victimId: number }
   | { type: 'respawn'; carId: number }
   | { type: 'bump'; attackerId: number; victimId: number }
+  | { type: 'chat'; carId: number; text: string }
   | { type: 'countdown'; n: number }
   | { type: 'go' }
   | { type: 'kickoffReset' }
@@ -78,6 +80,8 @@ export class World {
   private hit: BallCarHit = { flipReset: false, fresh: false, relSpeed: 0 };
   private inputs: CarInput[] = [];
   readonly match = new Match();
+  /** Reglas globales (mutadores) que afectan a los coches. */
+  rules: CarRules = { ...DEFAULT_RULES };
   private contact: CarCarContact = { normal: new Vec3(), point: new Vec3(), penetration: 0 };
   private bumpTicks = new Map<number, number>();
   private preA = new Vec3();
@@ -110,11 +114,37 @@ export class World {
         const s = spots[i % spots.length];
         const sx = team === 0 ? s.x : -s.x;
         const sy = team === 0 ? s.y : -s.y;
-        car.place(sx, sy, Math.atan2(-sy, -sx));
+        this.placeCar(car, sx, sy, Math.atan2(-sy, -sx));
       });
     });
     for (const p of this.pads) p.reset();
     this.bumpTicks.clear();
+  }
+
+  /** Aplica los mutadores de física (pelota, gravedad, turbo). Llamar antes de `startMatch`. */
+  applyMutators(m: ResolvedMutators): void {
+    const b = this.ball;
+    b.radius = m.ball.radius;
+    b.mass = m.ball.mass;
+    b.restitution = m.ball.restitution;
+    b.maxSpeed = m.ball.maxSpeed;
+    b.gravityScale = m.gravityScale;
+    const startBoost =
+      m.boostMode === 'none' ? 0 : m.boostMode === 'unlimited' ? 100 : DEFAULT_RULES.startBoost;
+    this.rules = {
+      gravityScale: m.gravityScale,
+      boostMode: m.boostMode,
+      boostStrength: m.boostStrength,
+      startBoost,
+    };
+    b.reset(0, 0);
+    for (const c of this.cars) c.boost = startBoost;
+  }
+
+  /** Restablece el estado de turbo de un coche según las reglas. */
+  private placeCar(car: Car, x: number, y: number, yaw: number): void {
+    car.place(x, y, yaw);
+    car.boost = this.rules.startBoost;
   }
 
   /** Inicia una partida con reglas Soccar (saque con cuenta atrás incluido). */
@@ -157,7 +187,7 @@ export class World {
       }
       const wasJumping = car.isJumping;
       const hadFlip = car.flipUsed;
-      car.step(dt);
+      car.step(dt, this.rules);
       if (car.isJumping && !wasJumping) this.events.push({ type: 'jump', carId: car.id });
       if (car.flipUsed && !hadFlip) this.events.push({ type: 'flip', carId: car.id });
     }
@@ -186,7 +216,7 @@ export class World {
     }
     this.ball.collideArena();
 
-    updatePads(this.pads, dt, this.cars, this.pickups);
+    updatePads(this.pads, dt, this.cars, this.pickups, this.rules.boostMode !== 'none');
     for (const pad of this.pickups) {
       const carId = this.cars.findIndex((c) => c.lastPadPickup === pad);
       this.events.push({ type: 'padPickup', carId, padIndex: this.pads.indexOf(pad) });
@@ -269,7 +299,7 @@ export class World {
     const s = spots[this.rng.int(spots.length)];
     const sx = car.team === 0 ? s.x : -s.x;
     const sy = car.team === 0 ? s.y : -s.y;
-    car.place(sx, sy, Math.atan2(-sy, -sx));
+    this.placeCar(car, sx, sy, Math.atan2(-sy, -sx));
     this.events.push({ type: 'respawn', carId: car.id });
   }
 

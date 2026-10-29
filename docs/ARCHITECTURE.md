@@ -41,6 +41,31 @@ Las mecánicas avanzadas (cancelación de flip, half-flip, wavedash, aéreos, dr
 dependiente de la velocidad relativa y de la zona de contacto (componente vertical atenuada al 35 %, componente
 frontal al 65 %), que produce el característico "pop".
 
+## IA de bots (`src/sim/ai/`)
+
+Los bots viven en `sim/` (sin DOM) y producen un `CarInput` por tick: **la misma entrada y la misma física que
+un jugador**, sin trampas de velocidad ni teletransportes (hay un test que lo comprueba).
+
+- **Predicción** (`prediction.ts`): la pelota se simula 2,6 s hacia delante con su propia física (gravedad,
+  aire, rebotes en el SDF) a 20 Hz compartidos por todos los bots.
+- **Intercepción y roles** (`manager.ts`): cada bot calcula el primer punto de la trayectoria al que llega a
+  tiempo. El más rápido de su equipo ataca (con histéresis para no oscilar); el más retrasado defiende y el
+  resto apoya. De ahí sale la **rotación** 1.º/2.º/3.er hombre. En 1v1 ataca si llega antes que el rival.
+- **Comportamiento** (`bot.ts`): saque (el más cercano va a por la pelota, los demás a por turbo), ataque con
+  aproximación por detrás de la pelota para no golpear hacia la propia portería, despeje a las bandas en el
+  tercio propio, pase a un compañero adelantado, defensa entre pelota y portería, gestión de turbo, flips
+  para golpear, aéreos (el objetivo se persigue con un controlador de empuje + actitud), recuperación y
+  aterrizaje sobre las ruedas, bajada de paredes/techo, demoliciones oportunistas (Leyenda) y detección de
+  atasco con maniobra de salida. Cada nivel limita reacción, precisión y mecánicas (`config/bots.ts`).
+- **Chat rápido** contextual (`chat` en los eventos): "¡La tengo!", "¡Defendiendo!", "¡Buen tiro!", "¡Gracias!".
+
+## Mutadores (`config/mutators.ts`)
+
+`Mutators` (lo que elige el jugador) se traduce con `resolveMutators()` a valores numéricos que aplica
+`World.applyMutators()`: tamaño/rebote/peso/velocidad máxima de la pelota, gravedad, modo y fuerza del turbo,
+demoliciones, reaparición, duración, goles máximos y prórroga. La velocidad de juego escala el bucle de render
+(`GameLoop.timeScale`) sin tocar el paso fijo, y la serie al mejor de N la gestiona `Series`.
+
 ## Ejes y unidades
 
 Unidades de juego (uu, 1 uu = 1 cm). Ejes de la simulación: x = ancho, y = largo (portería azul en y < 0),
@@ -64,7 +89,12 @@ coordenadas de la simulación.
 
 ## Problemas conocidos (F1)
 
-- Sin menús ni bots (F3/F4): las partidas de prueba se arrancan por URL con rivales inmóviles.
+- Sin menús (F4): las partidas se arrancan y configuran por URL.
+- Los bots no conducen por paredes/techo a propósito (`wallPlay: false`) y los aéreos de Pro/Leyenda fallan a
+  veces: es intencionado; afina `config/bots.ts` y `sim/ai/bot.ts` si quieres otro nivel de exigencia.
+- El estado interno de los bots (RNG, habilidades) no entra en los snapshots: para repeticiones se graban
+  sus entradas, y un servidor autoritativo (F7) los ejecuta él mismo.
+- El tema de estadio de los mutadores se acepta pero no cambia nada hasta F5.
 - La repetición del gol (`replayTime`) está soportada por la simulación pero desactivada hasta F4.
 - La explosión de demolición es sólo ocultar el coche; los efectos llegan en F5.
 - Los modelos de las 6 carrocerías comparten generador procedural con parámetros distintos; se diferenciarán

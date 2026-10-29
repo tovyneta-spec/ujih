@@ -25,6 +25,7 @@ export function updatePads(
   dt: number,
   cars: readonly Car[],
   pickups: BoostPad[],
+  enabled = true,
 ): void {
   pickups.length = 0;
   for (const pad of pads) {
@@ -33,6 +34,8 @@ export function updatePads(
       if (pad.timer <= 0) pad.active = true;
     }
   }
+  if (!enabled) return;
+  if (!enabled) return;
   for (const car of cars) {
     if (car.demolished) continue;
     for (const pad of pads) {

@@ -7,3 +7,6 @@ export * from './pads';
 export * from './rng';
 export * from './world';
 export * from './match';
+export * from './ai/manager';
+export * from './ai/bot';
+export * from './series';

@@ -46,6 +46,7 @@ export class GameRenderer {
   private sun: DirectionalLight;
   private world: World | null = null;
   private focusCarId = 0;
+  private ballScale = 1;
 
   private carPos = new Vec3();
   private ballPos = new Vec3();
@@ -92,6 +93,12 @@ export class GameRenderer {
     this.simRoot.add(this.debug.group);
   }
 
+  /** Escala visual de la pelota (mutador de tamaño). */
+  setBallScale(scale: number): void {
+    this.ball.mesh.scale.setScalar(scale);
+    this.ballScale = scale;
+  }
+
   /** Crea los objetos visuales de un mundo (coches, pads). */
   setWorld(world: World, focusCarId = 0): void {
     this.world = world;
@@ -135,7 +142,7 @@ export class GameRenderer {
     this.ball.group.quaternion.copy(this.tq.slerp(this.tq2, alpha));
     this.ball.blob.position.set(this.ballPos.x, this.ballPos.y, 1);
     const height = this.ballPos.z;
-    const s = 1 + height / 900;
+    const s = (1 + height / 900) * this.ballScale;
     this.ball.blob.scale.set(s, s, 1);
     (this.ball.blob.material as { opacity: number }).opacity = Math.max(0.15, 0.8 - height / 1800);
 

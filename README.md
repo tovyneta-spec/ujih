@@ -6,15 +6,44 @@ TypeScript estricto + Vite + Three.js (WebGL2) con una simulación física propi
 > Juego original: no usa nombres, logos, modelos, texturas ni sonidos de Psyonix/Epic Games.
 > Todos los assets se generan por código (ver `CREDITS.md`).
 
-**Estado: Fase F2** (ver [Plan de fases](#plan-de-fases)). Práctica libre jugable (estadio, pelota, coche con
-todas las mecánicas, pads, cámaras, HUD, depuración) y **partida con reglas Soccar**: saque 3-2-1, reloj,
-goles con goleador y velocidad, prórroga con gol de oro, demoliciones, puntuación y pantalla final.
+**Estado: Fase F3** (ver [Plan de fases](#plan-de-fases)). Práctica libre y **partidas completas contra bots**
+en 1v1, 2v2 y 3v3 (Azul vs Naranja), con reglas Soccar (saque 3-2-1, reloj, goles con goleador y velocidad,
+prórroga con gol de oro, demoliciones, puntuación, pantalla final), 3 niveles de bots y partida personalizada
+con mutadores. Los menús llegan en F4, así que de momento se configura por URL.
 
-Modos de prueba (hasta que lleguen menús y bots en F3/F4), por URL:
+## Modos y configuración por URL
 
-- `/` práctica libre
-- `/?mode=match` 1v1, `/?mode=match2` 2v2, `/?mode=match3` 3v3 — rivales y compañeros inmóviles; `R` al
-  terminar = revancha.
+| URL                                   | Qué hace                                        |
+| ------------------------------------- | ----------------------------------------------- |
+| `/`                                   | Práctica libre (pelota y coche, `R` reinicia)   |
+| `/?mode=match`                        | Partida 1v1 contra un bot Pro                   |
+| `/?mode=match&format=3v3&bots=legend` | 3v3 (tus compañeros y rivales son bots Leyenda) |
+
+Parámetros (todos opcionales, valores inválidos se ignoran):
+
+| Parámetro    | Valores                                         | Por defecto |
+| ------------ | ----------------------------------------------- | ----------- |
+| `format`     | `1v1`, `2v2`, `3v3`                             | `1v1`       |
+| `bots`       | `rookie` (Novato), `pro`, `legend` (Leyenda)    | `pro`       |
+| `team`       | `blue`, `orange` (tu equipo)                    | `blue`      |
+| `duration`   | `0` (ilimitada), `3`, `5`, `10`, `20` (minutos) | `5`         |
+| `goals`      | goles máximos para ganar (0 = sin límite)       | `0`         |
+| `overtime`   | `0` desactiva la prórroga                       | activa      |
+| `series`     | `0`, `3`, `5`, `7` (al mejor de)                | `0`         |
+| `speed`      | `normal`, `slow`, `fast` (velocidad de juego)   | `normal`    |
+| `ballsize`   | `default`, `small`, `large`, `giant`            | `default`   |
+| `bounce`     | `default`, `low`, `high`, `super`               | `default`   |
+| `weight`     | `default`, `light`, `heavy`, `superLight`       | `default`   |
+| `ballspeed`  | `default`, `slow`, `fast`, `super`              | `default`   |
+| `boost`      | `normal`, `none`, `unlimited`, `recharge`       | `normal`    |
+| `boostpower` | `1`, `1.5`, `2`, `10`                           | `1`         |
+| `gravity`    | `low`, `normal`, `high`                         | `normal`    |
+| `demo`       | `normal`, `off`, `friendly`, `contact`          | `normal`    |
+| `respawn`    | segundos de reaparición tras demolición         | `3`         |
+| `theme`      | `day`, `night`, `neon` (temas en F5)            | `day`       |
+
+Ejemplo: `/?mode=match&format=2v2&bots=legend&ballsize=giant&gravity=low&series=3`.
+Al terminar una partida, `R` = revancha (o siguiente partido de la serie).
 
 ## Instalación y ejecución
 
@@ -74,6 +103,8 @@ Las teclas por defecto están en `src/config/controls.ts` (la reasignación desd
 src/
   config/   TODAS las constantes (física, estadio, pads, carrocerías, cámara, teclas)
   sim/      simulación determinista sin DOM ni Three.js (paso fijo 120 Hz)
+    ai/            bots: predicción de pelota, control, roles/rotación, habilidades
+    series.ts      serie al mejor de 3/5/7
     arena.ts       SDF analítico del estadio + detección de gol
     ball.ts        pelota (rebote, fricción → giro)
     car.ts         controlador del coche (suelo/paredes/techo, salto, flip, aire, turbo)

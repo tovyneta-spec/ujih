@@ -22,7 +22,7 @@ export class Ball {
   maxSpeed: number = BALL.maxSpeed;
   restitution: number = BALL.restitution;
 
-  reset(x = 0, y = 0, z: number = BALL.radius): void {
+  reset(x = 0, y = 0, z: number = this.radius): void {
     this.pos.set(x, y, z);
     this.vel.set(0, 0, 0);
     this.angVel.set(0, 0, 0);

@@ -1,5 +1,5 @@
 // Reglas de Soccar: fases de partida, reloj, goles, prórroga con gol de oro, puntuación y estadísticas.
-import { ARENA, BALL, DEFAULT_MATCH_CONFIG, MATCH, PHYSICS } from '../config';
+import { ARENA, DEFAULT_MATCH_CONFIG, MATCH, PHYSICS } from '../config';
 import type { MatchConfig } from '../config';
 import { arenaDepth } from './arena';
 import type { Car } from './car';
@@ -179,7 +179,7 @@ export class Match {
     if (this.timeUp) {
       // Si la pelota está en el aire el juego continúa hasta que toque una superficie.
       const b = world.ball;
-      const airborne = arenaDepth(b.pos.x, b.pos.y, b.pos.z) > BALL.radius + 15;
+      const airborne = arenaDepth(b.pos.x, b.pos.y, b.pos.z) > b.radius + 15;
       if (!airborne) this.finishRegulation(world);
     }
   }
@@ -294,9 +294,7 @@ export class Match {
     const x = b.pos.x + b.vel.x * t;
     const z = b.pos.z + b.vel.z * t + 0.5 * PHYSICS.gravity * t * t;
     return (
-      Math.abs(x) < ARENA.goal.halfWidth + BALL.radius &&
-      z > 0 &&
-      z < ARENA.goal.height + BALL.radius
+      Math.abs(x) < ARENA.goal.halfWidth + b.radius && z > 0 && z < ARENA.goal.height + b.radius
     );
   }
 
