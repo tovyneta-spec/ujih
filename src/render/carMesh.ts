@@ -11,6 +11,7 @@ import {
   Group,
   Mesh,
   MeshBasicMaterial,
+  MeshLambertMaterial,
   MeshStandardMaterial,
   OctahedronGeometry,
   PlaneGeometry,
@@ -28,6 +29,9 @@ import type {
   TrailStyle,
   WheelStyle,
 } from '../config';
+import { mergeGeometries } from 'three/examples/jsm/utils/BufferGeometryUtils.js';
+import type { BufferGeometry, ColorRepresentation, Material } from 'three';
+import type { Quality } from './quality';
 import { makeBlobTexture } from './textures';
 
 export interface CarLook {
@@ -52,6 +56,8 @@ export interface CarVisual {
   /** Posiciones locales de los escapes y de las ruedas traseras (para partículas). */
   exhaust: Vector3[];
   rearWheels: Vector3[];
+  /** Activa o desactiva que el coche proyecte sombra. */
+  setShadow(on: boolean): void;
   dispose(): void;
 }
 
@@ -76,9 +82,11 @@ interface Ctx {
   /** Convierte fracciones a coordenadas locales. */
   X: (f: number) => number;
   Z: (f: number) => number;
-  body: MeshStandardMaterial;
-  trim: MeshStandardMaterial;
-  dark: MeshStandardMaterial;
+  body: Material;
+  trim: Material;
+  dark: Material;
+  /** Añade una malla estática: se fusiona con las del mismo material (una sola llamada de dibujo). */
+  add(mesh: Mesh): void;
 }
 
 const box = (
@@ -89,11 +97,11 @@ const box = (
   x: number,
   y: number,
   z: number,
-  m: MeshStandardMaterial,
+  m: Material,
 ): Mesh => {
   const mesh = new Mesh(new BoxGeometry(w, d, h), m);
   mesh.position.set(x, y, z);
-  c.root.add(mesh);
+  c.add(mesh);
   return mesh;
 };
 
@@ -200,7 +208,7 @@ const SHAPES: Record<CarBodyId, BodyShape> = {
       const nose = new Mesh(new ConeGeometry(c.W * 0.1, c.L * 0.14, 4), c.trim);
       nose.rotation.z = -Math.PI / 2;
       nose.position.set(c.X(1.04), 0, c.Z(0.12));
-      c.root.add(nose);
+      c.add(nose);
       for (const s of [-1, 1])
         box(c, c.L * 0.14, 3, c.H * 0.18, c.X(0.45), s * (c.W * 0.44 + 1), c.Z(0.22), c.dark);
     },
@@ -258,10 +266,49 @@ const SHAPES: Record<CarBodyId, BodyShape> = {
       const spare = new Mesh(new CylinderGeometry(c.H * 0.2, c.H * 0.2, 6, 14), c.dark);
       spare.rotation.z = Math.PI / 2;
       spare.position.set(c.X(-0.02), 0, c.Z(0.6));
-      c.root.add(spare);
+      c.add(spare);
     },
   },
 };
+
+/** Acumula mallas estáticas y las fusiona por material. */
+class Baker {
+  private parts = new Map<Material, BufferGeometry[]>();
+  add(mesh: Mesh): void {
+    mesh.updateMatrix();
+    const g = mesh.geometry.applyMatrix4(mesh.matrix);
+    const list = this.parts.get(mesh.material as Material) ?? [];
+    list.push(g.index ? g.toNonIndexed() : g);
+    this.parts.set(mesh.material as Material, list);
+  }
+  /** Crea una malla por material en `parent` y devuelve la lista. */
+  flush(parent: Group): Mesh[] {
+    const out: Mesh[] = [];
+    for (const [mat, list] of this.parts) {
+      const merged = mergeGeometries(list);
+      list.forEach((g) => g.dispose());
+      if (!merged) continue;
+      const mesh = new Mesh(merged, mat);
+      parent.add(mesh);
+      out.push(mesh);
+    }
+    this.parts.clear();
+    return out;
+  }
+}
+
+/** Material PBR o Lambert según el nivel de calidad. */
+function mk(
+  q: Quality,
+  color: ColorRepresentation,
+  roughness: number,
+  metalness: number,
+  emissive?: ColorRepresentation,
+): MeshStandardMaterial | MeshLambertMaterial {
+  return q.lambert
+    ? new MeshLambertMaterial({ color, emissive: emissive ?? 0x000000 })
+    : new MeshStandardMaterial({ color, roughness, metalness, emissive: emissive ?? 0x000000 });
+}
 
 function extruded(points: P[], depth: number, bevel: number): ExtrudeGeometry {
   const shape = new Shape();
@@ -279,63 +326,57 @@ function extruded(points: P[], depth: number, bevel: number): ExtrudeGeometry {
   return geo;
 }
 
-/** Rueda con el estilo elegido; el eje de giro es el eje y local. */
-function buildWheel(style: WheelStyle, r: number, w: number, accent: Color): Group {
-  const g = new Group();
-  const tire = new Mesh(
-    new CylinderGeometry(r, r, w, 16),
-    new MeshStandardMaterial({ color: 0x15171c, roughness: 0.9 }),
-  );
-  g.add(tire);
-  const rimMat = new MeshStandardMaterial({
-    color: style === 'chrome' ? 0xf2f5ff : 0xd9dde6,
-    roughness: style === 'chrome' ? 0.08 : 0.3,
-    metalness: style === 'chrome' ? 1 : 0.8,
-  });
-  const disc = (rad: number): Mesh => new Mesh(new CylinderGeometry(rad, rad, w + 1, 12), rimMat);
+/** Genera las piezas de una rueda (eje de giro = y local) y las entrega a `emit`. */
+function wheelParts(
+  style: WheelStyle,
+  r: number,
+  w: number,
+  tireMat: Material,
+  rimMat: Material,
+  neonMat: Material,
+  emit: (m: Mesh) => void,
+): void {
+  const disc = (rad: number): Mesh => new Mesh(new CylinderGeometry(rad, rad, w + 1, 10), rimMat);
+  emit(new Mesh(new CylinderGeometry(r, r, w, 14), tireMat));
   switch (style) {
     case 'classic':
-      g.add(disc(r * 0.62));
+      emit(disc(r * 0.62));
       break;
     case 'chrome':
-      g.add(disc(r * 0.78));
+      emit(disc(r * 0.78));
       break;
     case 'spokes': {
-      g.add(disc(r * 0.2));
+      emit(disc(r * 0.2));
       for (let i = 0; i < 5; i++) {
         const spoke = new Mesh(new BoxGeometry(r * 1.3, w + 1, r * 0.16), rimMat);
         spoke.rotation.y = (i / 5) * Math.PI;
-        g.add(spoke);
+        emit(spoke);
       }
       break;
     }
     case 'turbine': {
-      g.add(disc(r * 0.18));
+      emit(disc(r * 0.18));
       for (let i = 0; i < 8; i++) {
         const blade = new Mesh(new BoxGeometry(r * 0.62, w + 1, r * 0.1), rimMat);
         const a = (i / 8) * Math.PI * 2;
         blade.position.set(Math.cos(a) * r * 0.36, 0, Math.sin(a) * r * 0.36);
         blade.rotation.y = -a + 0.5;
-        g.add(blade);
+        emit(blade);
       }
       break;
     }
     case 'neon': {
-      g.add(disc(r * 0.55));
-      const ring = new Mesh(
-        new TorusGeometry(r * 0.72, 1.6, 6, 20),
-        new MeshBasicMaterial({ color: accent.clone().multiplyScalar(2.2), toneMapped: false }),
-      );
+      emit(disc(r * 0.55));
+      const ring = new Mesh(new TorusGeometry(r * 0.72, 1.6, 6, 16), neonMat);
       ring.rotation.x = Math.PI / 2;
       ring.position.y = w / 2 + 0.6;
-      g.add(ring);
+      emit(ring);
       break;
     }
   }
-  return g;
 }
 
-export function buildCarMesh(spec: CarBodySpec, look: CarLook): CarVisual {
+export function buildCarMesh(spec: CarBodySpec, look: CarLook, quality: Quality): CarVisual {
   const group = new Group();
   const root = new Group();
   root.position.set(spec.visualOffset.x, spec.visualOffset.y, spec.visualOffset.z);
@@ -347,20 +388,31 @@ export function buildCarMesh(spec: CarBodySpec, look: CarLook): CarVisual {
   const m = spec.model;
   const shape = SHAPES[spec.id];
 
-  const body = new MeshStandardMaterial({ color: look.primary, roughness: 0.28, metalness: 0.5 });
-  const trim = new MeshStandardMaterial({ color: look.secondary, roughness: 0.45, metalness: 0.3 });
-  const dark = new MeshStandardMaterial({ color: 0x14171f, roughness: 0.6, metalness: 0.2 });
-  const glass = new MeshStandardMaterial({ color: 0x0b1424, roughness: 0.05, metalness: 0.85 });
+  const body = mk(quality, look.primary, 0.28, 0.5);
+  const trim = mk(quality, look.secondary, 0.45, 0.3);
+  const dark = mk(quality, 0x14171f, 0.6, 0.2);
+  const glass = mk(quality, 0x0b1424, 0.05, 0.85);
+  const tireMat = mk(quality, 0x15171c, 0.9, 0);
+  const rimMat = mk(
+    quality,
+    look.wheels === 'chrome' ? 0xf2f5ff : 0xd9dde6,
+    look.wheels === 'chrome' ? 0.08 : 0.3,
+    look.wheels === 'chrome' ? 1 : 0.8,
+  );
+  const neonMat = new MeshBasicMaterial({
+    color: look.primary.clone().multiplyScalar(2.2),
+  });
+  const baker = new Baker();
 
   const zb = -H / 2 + m.wheelRadius * 0.55;
   const zt = H / 2;
   const X = (f: number): number => -L / 2 + f * L;
   const Z = (f: number): number => zb + f * (zt - zb);
-  const c: Ctx = { root, L, W, H, zb, zt, X, Z, body, trim, dark };
+  const c: Ctx = { root, L, W, H, zb, zt, X, Z, body, trim, dark, add: (m) => baker.add(m) };
   const toXZ = (pts: P[]): P[] => pts.map(([fx, fz]) => [X(fx), Z(fz)]);
 
-  root.add(new Mesh(extruded(toXZ(shape.lower), W * shape.lowerWidth, 3), body));
-  root.add(new Mesh(extruded(toXZ(shape.cabin), W * shape.cabinWidth, 2), glass));
+  c.add(new Mesh(extruded(toXZ(shape.lower), W * shape.lowerWidth, 3), body));
+  c.add(new Mesh(extruded(toXZ(shape.cabin), W * shape.cabinWidth, 2), glass));
   // Techo con el color secundario.
   const roofPts = shape.cabin.filter(([, fz]) => fz >= 0.9);
   if (roofPts.length >= 2) {
@@ -396,12 +448,11 @@ export function buildCarMesh(spec: CarBodySpec, look: CarLook): CarVisual {
   // Barra luminosa del equipo sobre el parabrisas y brillo bajo el coche.
   const teamEmissive = new MeshBasicMaterial({
     color: look.team.clone().multiplyScalar(2.4),
-    toneMapped: false,
   });
   const roofX = shape.cabin.length >= 3 ? X(shape.cabin[shape.cabin.length - 2][0]) : X(0.6);
   const teamBar = new Mesh(new BoxGeometry(3, W * shape.cabinWidth * 0.8, 2), teamEmissive);
   teamBar.position.set(roofX + 4, 0, Z(0.97));
-  root.add(teamBar);
+  c.add(teamBar);
   const glow = new Mesh(
     new PlaneGeometry(L * 1.25, W * 1.4),
     new MeshBasicMaterial({
@@ -419,7 +470,7 @@ export function buildCarMesh(spec: CarBodySpec, look: CarLook): CarVisual {
   addDecal(c, look.decal, shape, spec);
   addAntenna(c, look, shape);
 
-  // Ruedas.
+  // Ruedas. Nivel bajo: fusionadas con la carrocería (sin giro individual); resto: animadas.
   const wheels: Group[] = [];
   const steerPivots: Group[] = [];
   const rearWheels: Vector3[] = [];
@@ -428,14 +479,26 @@ export function buildCarMesh(spec: CarBodySpec, look: CarLook): CarVisual {
   const wz = -H / 2 + m.wheelRadius;
   for (const sx of [1, -1]) {
     for (const sy of [1, -1]) {
-      const pivot = new Group();
-      pivot.position.set(sx * wx, sy * wy, wz);
-      const wheel = buildWheel(look.wheels, m.wheelRadius, m.wheelWidth, look.primary);
-      pivot.add(wheel);
-      root.add(pivot);
-      wheels.push(wheel);
-      if (sx > 0) steerPivots.push(pivot);
-      else rearWheels.push(new Vector3(sx * wx, sy * wy, -H / 2 + 1).add(root.position));
+      if (quality.staticWheels) {
+        wheelParts(look.wheels, m.wheelRadius, m.wheelWidth, tireMat, rimMat, neonMat, (part) => {
+          part.position.add(new Vector3(sx * wx, sy * wy, wz));
+          baker.add(part);
+        });
+      } else {
+        const pivot = new Group();
+        pivot.position.set(sx * wx, sy * wy, wz);
+        const wheel = new Group();
+        const local = new Baker();
+        wheelParts(look.wheels, m.wheelRadius, m.wheelWidth, tireMat, rimMat, neonMat, (part) =>
+          local.add(part),
+        );
+        local.flush(wheel);
+        pivot.add(wheel);
+        root.add(pivot);
+        wheels.push(wheel);
+        if (sx > 0) steerPivots.push(pivot);
+      }
+      if (sx < 0) rearWheels.push(new Vector3(sx * wx, sy * wy, -H / 2 + 1).add(root.position));
     }
   }
 
@@ -476,10 +539,24 @@ export function buildCarMesh(spec: CarBodySpec, look: CarLook): CarVisual {
     exhaust.push(pos.clone().add(root.position));
   }
 
+  // Fusiona todo lo estático por material (una llamada de dibujo por material).
+  baker.flush(root);
+  const casters: Mesh[] = [];
   root.traverse((o) => {
-    o.castShadow = true;
+    const mesh = o as Mesh;
+    if (
+      mesh.isMesh &&
+      mesh !== glow &&
+      !flames.includes(mesh) &&
+      !flames.some((f) => f.children.includes(mesh))
+    ) {
+      casters.push(mesh);
+    }
   });
-  glow.castShadow = false;
+  const setShadow = (on: boolean): void => {
+    for (const m of casters) m.castShadow = on;
+  };
+  setShadow(true);
 
   return {
     group,
@@ -490,6 +567,7 @@ export function buildCarMesh(spec: CarBodySpec, look: CarLook): CarVisual {
     trail: look.trail,
     exhaust,
     rearWheels,
+    setShadow,
     dispose() {
       group.traverse((o) => {
         const mesh = o as Mesh;
@@ -521,7 +599,7 @@ function addDecal(c: Ctx, style: DecalStyle, shape: BodyShape, spec: CarBodySpec
       const hood = new Mesh(new BoxGeometry(len, 7, 1.6), mat);
       hood.position.set((x0 + x1) / 2, s * 9, (z0 + z1) / 2 + 1.2);
       hood.rotation.y = -ang;
-      c.root.add(hood);
+      c.add(hood);
       box(c, c.L * 0.1, 7, 1.6, c.X(0.08), s * 9, c.Z(0.43) + 1.2, mat);
     }
   } else if (style === 'dots') {
@@ -529,7 +607,7 @@ function addDecal(c: Ctx, style: DecalStyle, shape: BodyShape, spec: CarBodySpec
       for (const f of [0.3, 0.55, 0.8]) {
         const d = new Mesh(new CylinderGeometry(c.H * 0.1, c.H * 0.1, 1.5, 12), mat);
         d.position.set(c.X(f), s * (half + 0.8), c.Z(0.2));
-        c.root.add(d);
+        c.add(d);
       }
     }
   } else {
@@ -566,7 +644,7 @@ function addAntenna(c: Ctx, look: CarLook, shape: BodyShape): void {
   const pole = new Mesh(new CylinderGeometry(1.1, 1.1, poleH, 6), c.dark);
   pole.rotation.x = Math.PI / 2;
   pole.position.set(x, y, z0 + poleH / 2);
-  c.root.add(pole);
+  c.add(pole);
   const top = z0 + poleH;
   if (look.antenna === 'ball') {
     const b = new Mesh(
@@ -574,7 +652,7 @@ function addAntenna(c: Ctx, look: CarLook, shape: BodyShape): void {
       new MeshStandardMaterial({ color: look.team, emissive: look.team, emissiveIntensity: 0.6 }),
     );
     b.position.set(x, y, top + 3);
-    c.root.add(b);
+    c.add(b);
   } else if (look.antenna === 'flag') {
     const f = new Mesh(
       new PlaneGeometry(22, 13),
@@ -582,13 +660,10 @@ function addAntenna(c: Ctx, look: CarLook, shape: BodyShape): void {
     );
     f.rotation.x = Math.PI / 2;
     f.position.set(x - 11, y, top - 6);
-    c.root.add(f);
+    c.add(f);
   } else {
-    const s = new Mesh(
-      new OctahedronGeometry(6, 0),
-      new MeshBasicMaterial({ color: 0xffd23f, toneMapped: false }),
-    );
+    const s = new Mesh(new OctahedronGeometry(6, 0), new MeshBasicMaterial({ color: 0xffd23f }));
     s.position.set(x, y, top + 5);
-    c.root.add(s);
+    c.add(s);
   }
 }

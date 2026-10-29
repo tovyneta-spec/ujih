@@ -19,6 +19,7 @@ import {
 import { ARENA } from '../config';
 import type { ThemeSpec } from '../config';
 import { perimeter } from './arenaMesh';
+import type { Quality } from './quality';
 
 const GX = ARENA.goal.halfWidth;
 const HY = ARENA.halfLength;
@@ -114,9 +115,46 @@ function screenTexture(blue: number, orange: number): CanvasTexture {
   return t;
 }
 
-export function buildStadium(theme: ThemeSpec): StadiumVisual {
+function addLights(group: Group, theme: ThemeSpec): void {
+  // Barras de luz del techo (instanciadas: una sola llamada de dibujo).
+  const lightColor = new Color(theme.light).multiplyScalar(theme.id === 'day' ? 1.4 : 3);
+  const bars: Matrix4[] = [];
+  for (let y = -4000; y <= 4000; y += 1000) {
+    for (const x of [-2600, 0, 2600]) {
+      const m = new Matrix4().makeTranslation(x, y, H - 6);
+      bars.push(m);
+    }
+  }
+  const lights = new InstancedMesh(
+    new BoxGeometry(1300, 70, 6),
+    new MeshBasicMaterial({ color: lightColor }),
+    bars.length,
+  );
+  bars.forEach((m, i) => lights.setMatrixAt(i, m));
+  group.add(lights);
+}
+
+export function buildStadium(theme: ThemeSpec, quality: Quality): StadiumVisual {
   const group = new Group();
   group.name = 'stadium';
+
+  // Nivel bajo: sin gradas, público ni pantallas (las paredes son opacas y no se verían).
+  if (!quality.crowd) {
+    addLights(group, theme);
+    return {
+      group,
+      excite: () => {},
+      setScore: () => {},
+      update: () => {},
+      dispose() {
+        group.traverse((o) => {
+          const m = o as Mesh;
+          m.geometry?.dispose();
+          (m.material as MeshBasicMaterial | undefined)?.dispose();
+        });
+      },
+    };
+  }
 
   // --- Gradas ---
   const standColor = new Color(theme.id === 'day' ? 0x4a556e : 0x1b2038);
@@ -201,22 +239,7 @@ export function buildStadium(theme: ThemeSpec): StadiumVisual {
   placeAll(0, 0);
   group.add(bodies, heads);
 
-  // --- Barras de luz del techo ---
-  const lightColor = new Color(theme.light).multiplyScalar(theme.id === 'day' ? 1.4 : 3);
-  const bars: Matrix4[] = [];
-  for (let y = -4000; y <= 4000; y += 1000) {
-    for (const x of [-2600, 0, 2600]) {
-      const m = new Matrix4().makeTranslation(x, y, H - 6);
-      bars.push(m);
-    }
-  }
-  const lights = new InstancedMesh(
-    new BoxGeometry(1300, 70, 6),
-    new MeshBasicMaterial({ color: lightColor, toneMapped: false }),
-    bars.length,
-  );
-  bars.forEach((m, i) => lights.setMatrixAt(i, m));
-  group.add(lights);
+  addLights(group, theme);
 
   // --- Pantallas tras las porterías (visibles por encima del larguero) ---
   let scoreTex = screenTexture(0, 0);
@@ -224,7 +247,7 @@ export function buildStadium(theme: ThemeSpec): StadiumVisual {
   for (const s of [-1, 1]) {
     const scr = new Mesh(
       new PlaneGeometry(3400, 1060),
-      new MeshBasicMaterial({ map: scoreTex, toneMapped: false, side: DoubleSide }),
+      new MeshBasicMaterial({ map: scoreTex, side: DoubleSide }),
     );
     scr.position.set(0, s * (HY + 1500), 1250);
     scr.rotation.x = Math.PI / 2;

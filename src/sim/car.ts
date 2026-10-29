@@ -1,10 +1,10 @@
 import { CAR, PHYSICS, sampleCurve } from '../config';
 import type { CarBodySpec } from '../config';
-import { arenaQuery } from './arena';
+import { arenaQueryV, queryDepth } from './arena';
 import type { BoostPad } from './pads';
 import { copyInput, neutralInput } from './input';
 import type { CarInput } from './input';
-import { Quat, Vec3, clamp } from './math';
+import { Quat, Vec3, clamp, hyp2 } from './math';
 
 /** Reglas globales que afectan al coche (mutadores). */
 export interface CarRules {
@@ -198,7 +198,8 @@ export class Car {
     this.bodyNormal.set(0, 0, 0);
     for (let i = 0; i < 8; i++) {
       this.cornerWorld(i, corner);
-      const d = arenaQuery(corner.x, corner.y, corner.z, cn);
+      arenaQueryV(corner, cn);
+      const d = queryDepth[0];
       const touching = d < tol;
       if (i < 4) {
         this.wheelContact[i] = touching;
@@ -315,7 +316,7 @@ export class Car {
     this.flipUsed = true;
     const fwdIn = -inp.pitch;
     const sideIn = inp.yaw;
-    const mag = Math.hypot(fwdIn, sideIn);
+    const mag = hyp2(fwdIn, sideIn);
     if (mag < c.flipDeadzone) {
       this.vel.addScaled(this.up, c.doubleJumpImpulse);
       return;

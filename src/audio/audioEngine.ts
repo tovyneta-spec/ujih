@@ -1,9 +1,9 @@
 // Audio 100 % sintetizado con WebAudio (sin archivos): motor, turbo, impactos, demolición, pads,
-// cuenta atrás, bocina y ovación de gol, ambiente de público, sonidos de UI y música generativa.
+// cuenta atrás, bocina y ovación de gol, ambiente de público y sonidos de UI.
 import { DEFAULT_AUDIO, saveAudio } from '../storage';
 import type { AudioSettings } from '../storage';
 import type { Car, SimEvent, World } from '../sim';
-import { distanceGain, engineFrequency, midiToHz, musicStep, panFor } from './dsp';
+import { distanceGain, engineFrequency, panFor } from './dsp';
 
 interface CarVoice {
   osc1: OscillatorNode;
@@ -29,15 +29,10 @@ export class AudioEngine {
   private ctx: AudioContext | null = null;
   private master!: GainNode;
   private sfx!: GainNode;
-  private musicBus!: GainNode;
   private noise!: AudioBuffer;
   private voices = new Map<number, CarVoice>();
   private crowdGain!: GainNode;
   private crowdLevel = 0.05;
-  private musicStepIndex = 0;
-  private musicNext = 0;
-  private musicTimer = 0;
-  private musicPlaying = false;
   settings: AudioSettings;
 
   constructor(initial: AudioSettings = DEFAULT_AUDIO) {
@@ -65,17 +60,13 @@ export class AudioEngine {
     this.settings = { ...s };
     saveAudio(this.settings);
     this.applyVolumes();
-    if (this.settings.musicOn) this.startMusic();
-    else this.stopMusic();
   }
 
   private build(): void {
     const ctx = this.ctx as AudioContext;
     this.master = ctx.createGain();
     this.sfx = ctx.createGain();
-    this.musicBus = ctx.createGain();
     this.sfx.connect(this.master);
-    this.musicBus.connect(this.master);
     this.master.connect(ctx.destination);
     this.applyVolumes();
 
@@ -96,7 +87,6 @@ export class AudioEngine {
     this.crowdGain.gain.value = 0;
     src.connect(bp).connect(this.crowdGain).connect(this.sfx);
     src.start();
-    if (this.settings.musicOn) this.startMusic();
   }
 
   private applyVolumes(): void {
@@ -104,11 +94,6 @@ export class AudioEngine {
     const t = this.ctx.currentTime;
     this.master.gain.setTargetAtTime(this.settings.master, t, 0.03);
     this.sfx.gain.setTargetAtTime(this.settings.sfx, t, 0.03);
-    this.musicBus.gain.setTargetAtTime(
-      this.settings.musicOn ? this.settings.music * 0.5 : 0,
-      t,
-      0.05,
-    );
   }
 
   // ------------------------------------------------------------ utilidades
@@ -120,7 +105,6 @@ export class AudioEngine {
     gain: number,
     when = 0,
     to?: number,
-    bus?: GainNode,
   ): void {
     const ctx = this.ctx;
     if (!ctx) return;
@@ -133,7 +117,7 @@ export class AudioEngine {
     g.gain.setValueAtTime(0.0001, t);
     g.gain.exponentialRampToValueAtTime(Math.max(0.0002, gain), t + 0.012);
     g.gain.exponentialRampToValueAtTime(0.0001, t + dur);
-    o.connect(g).connect(bus ?? this.sfx);
+    o.connect(g).connect(this.sfx);
     o.start(t);
     o.stop(t + dur + 0.05);
   }
@@ -397,40 +381,5 @@ export class AudioEngine {
       v.pan.disconnect();
     }
     this.voices.clear();
-  }
-
-  // ------------------------------------------------------------------ música
-
-  startMusic(): void {
-    if (!this.ctx || this.musicPlaying) return;
-    this.musicPlaying = true;
-    this.musicNext = this.ctx.currentTime + 0.1;
-    this.musicTimer = window.setInterval(() => this.scheduleMusic(), 120);
-  }
-
-  stopMusic(): void {
-    this.musicPlaying = false;
-    window.clearInterval(this.musicTimer);
-  }
-
-  private scheduleMusic(): void {
-    const ctx = this.ctx;
-    if (!ctx) return;
-    const stepDur = 60 / 96 / 2;
-    while (this.musicNext < ctx.currentTime + 0.4) {
-      const s = musicStep(this.musicStepIndex);
-      const t = this.musicNext - ctx.currentTime;
-      if (this.musicStepIndex % 8 === 0) {
-        for (const n of s.chord)
-          this.tone(midiToHz(n), stepDur * 8, 'triangle', 0.05, t, undefined, this.musicBus);
-        this.tone(midiToHz(s.bass), stepDur * 4, 'sine', 0.14, t, undefined, this.musicBus);
-      }
-      if (this.musicStepIndex % 4 === 0 && this.musicStepIndex % 8 !== 0) {
-        this.tone(midiToHz(s.bass), stepDur * 3, 'sine', 0.1, t, undefined, this.musicBus);
-      }
-      this.tone(midiToHz(s.arp), stepDur * 1.6, 'square', 0.035, t, undefined, this.musicBus);
-      this.musicStepIndex++;
-      this.musicNext += stepDur;
-    }
   }
 }

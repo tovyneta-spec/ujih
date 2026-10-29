@@ -1,5 +1,5 @@
 import { BALL, CAR, CAR_CAR, sampleCurve } from '../config';
-import { arenaQuery } from './arena';
+import { arenaQueryV, queryDepth } from './arena';
 import type { Ball } from './ball';
 import type { Car } from './car';
 import { Vec3, clamp } from './math';
@@ -45,7 +45,8 @@ export function resolveCarArena(car: Car): number {
   for (let iter = 0; iter < 3; iter++) {
     for (let i = 0; i < 8; i++) {
       car.cornerWorld(i, corner);
-      const depth = arenaQuery(corner.x, corner.y, corner.z, n);
+      arenaQueryV(corner, n);
+      const depth = queryDepth[0];
       if (depth >= 0) continue;
       const pen = -depth;
       car.pos.addScaled(n, pen);

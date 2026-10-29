@@ -180,7 +180,11 @@ export class ParticleSystem {
       // Aparición rápida y desvanecimiento suave.
       this.col[c + 3] = this.baseAlpha[i] * Math.min(1, k * 12) * (1 - k * k);
     }
+    const hadAlive = this.alive > 0;
     this.alive = alive;
+    this.points.visible = alive > 0; // sin partículas vivas no se dibuja
+    // Sin partículas vivas (ni acabadas de morir) no hay nada que subir a la GPU.
+    if (alive === 0 && !hadAlive) return;
     (this.geo.getAttribute('position') as BufferAttribute).needsUpdate = true;
     (this.geo.getAttribute('aColor') as BufferAttribute).needsUpdate = true;
     (this.geo.getAttribute('aSize') as BufferAttribute).needsUpdate = true;

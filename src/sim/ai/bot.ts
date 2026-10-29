@@ -3,8 +3,8 @@ import { ARENA, PHYSICS } from '../../config';
 import type { BotProfile } from '../../config';
 import type { Car } from '../car';
 import type { CarInput } from '../input';
-import { neutralInput } from '../input';
-import { Vec3, clamp } from '../math';
+import { neutralInput, resetInput } from '../input';
+import { Vec3, clamp, hyp2 } from '../math';
 import type { Rng } from '../rng';
 import type { World } from '../world';
 import { bearing, driveToward, orient } from './control';
@@ -85,7 +85,7 @@ export class Bot {
   update(ctx: BotContext): CarInput {
     const car = this.car;
     const o = this.out;
-    Object.assign(o, neutralInput());
+    resetInput(o);
     if (car.demolished) return o;
     const now = ctx.world.time;
 
@@ -132,7 +132,7 @@ export class Bot {
       v1.copy(ball.pos);
       const dx = ball.pos.x - car.pos.x;
       const dy = ball.pos.y - car.pos.y;
-      const dist = Math.hypot(dx, dy);
+      const dist = hyp2(dx, dy);
       const reach = 300 + Math.max(0, car.forwardSpeed) * 0.12;
       if (
         dist < reach &&
@@ -173,7 +173,7 @@ export class Bot {
     const kickoff =
       m.enabled &&
       (m.phase === 'countdown' || m.phase === 'kickoff') &&
-      Math.hypot(ball.pos.x, ball.pos.y) < 30 &&
+      hyp2(ball.pos.x, ball.pos.y) < 30 &&
       ball.vel.length() < 30;
 
     // --- Saque ---
@@ -272,12 +272,12 @@ export class Bot {
 
     let dx = aim.x - ib.x;
     let dy = aim.y - ib.y;
-    const dl = Math.hypot(dx, dy) || 1;
+    const dl = hyp2(dx, dy) || 1;
     dx /= dl;
     dy /= dl;
     // Posición del coche respecto a la pelota en la dirección del tiro (negativo = detrás de ella).
     const behind = (car.pos.x - ib.x) * dx + (car.pos.y - ib.y) * dy;
-    const dist = Math.hypot(ib.x - car.pos.x, ib.y - car.pos.y);
+    const dist = hyp2(ib.x - car.pos.x, ib.y - car.pos.y);
     const tz = car.up.z > 0.8 ? 17 : ib.z;
 
     if (behind > -120 && dist < 3200) {
@@ -307,7 +307,7 @@ export class Bot {
     const depth = clamp(dBall * 0.4, 600, 2400);
     v1.scale(1 / dBall);
     this.target.set(clamp(v1.x * depth, -1500, 1500), ownY + v1.y * depth, 17);
-    const dist = Math.hypot(this.target.x - this.car.pos.x, this.target.y - this.car.pos.y);
+    const dist = hyp2(this.target.x - this.car.pos.x, this.target.y - this.car.pos.y);
     this.speed = dist > 700 ? 1900 : clamp(dist * 2.5, 150, 900);
     this.useBoost = dist > 1800;
     void world;
@@ -321,7 +321,7 @@ export class Bot {
     const py = by + (ownY - by) * 0.4;
     this.target.set(clamp(px, -3400, 3400), clamp(py, -HY + 700, HY - 700), 17);
     void dir;
-    const dist = Math.hypot(this.target.x - this.car.pos.x, this.target.y - this.car.pos.y);
+    const dist = hyp2(this.target.x - this.car.pos.x, this.target.y - this.car.pos.y);
     this.speed = dist > 500 ? 1700 : clamp(dist * 2.5, 150, 800);
     this.useBoost = dist > 2200;
   }
@@ -335,7 +335,7 @@ export class Bot {
     for (const pad of ctx.world.pads) {
       if (!pad.active) continue;
       if (ownSideOnly && Math.sign(pad.spec.y || ownY) !== Math.sign(ownY)) continue;
-      const d = Math.hypot(pad.spec.x - car.pos.x, pad.spec.y - car.pos.y);
+      const d = hyp2(pad.spec.x - car.pos.x, pad.spec.y - car.pos.y);
       if (d < bd) {
         bd = d;
         best = v2.set(pad.spec.x, pad.spec.y, 17);
@@ -357,7 +357,7 @@ export class Bot {
     let found = false;
     for (const pad of ctx.world.pads) {
       if (!pad.active) continue;
-      const d = Math.hypot(pad.spec.x - car.pos.x, pad.spec.y - car.pos.y);
+      const d = hyp2(pad.spec.x - car.pos.x, pad.spec.y - car.pos.y);
       const score = d - (pad.spec.size === 'big' ? 900 : 0);
       if (d < 3500 && score < bestScore) {
         bestScore = score;
@@ -414,7 +414,7 @@ export class Bot {
     switch (sk.type) {
       case 'flip': {
         if (age > 0.95 || (age > 0.3 && car.supported)) break;
-        const mag = Math.hypot(sk.f, sk.s) || 1;
+        const mag = hyp2(sk.f, sk.s) || 1;
         o.boost = this.useBoost && car.boost > 5;
         o.throttle = 1;
         if (age < 0.06) o.jump = true;
@@ -496,8 +496,7 @@ export class Bot {
       return;
     }
     // Esperar a propósito junto al objetivo no es estar atascado.
-    const near =
-      car.up.z > 0.8 && Math.hypot(this.target.x - car.pos.x, this.target.y - car.pos.y) < 300;
+    const near = car.up.z > 0.8 && hyp2(this.target.x - car.pos.x, this.target.y - car.pos.y) < 300;
     if (near || car.pos.distanceTo(this.stuckRef) > 160) {
       this.stuckTime = now;
       this.stuckRef.copy(car.pos);

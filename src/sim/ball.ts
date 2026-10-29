@@ -1,5 +1,5 @@
 import { BALL, PHYSICS } from '../config';
-import { arenaQuery } from './arena';
+import { arenaQueryV, queryDepth } from './arena';
 import { Quat, Vec3 } from './math';
 
 const n = new Vec3();
@@ -50,7 +50,8 @@ export class Ball {
   collideArena(): number {
     let impact = 0;
     for (let i = 0; i < 2; i++) {
-      const depth = arenaQuery(this.pos.x, this.pos.y, this.pos.z, n);
+      arenaQueryV(this.pos, n);
+      const depth = queryDepth[0];
       const pen = this.radius - depth;
       if (pen <= 0) return impact;
       this.pos.addScaled(n, pen);

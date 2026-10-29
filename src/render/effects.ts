@@ -74,8 +74,8 @@ const dummy = new Object3D();
 
 export class Effects {
   readonly group = new Group();
-  readonly glow = new ParticleSystem({ capacity: 7000, additive: true });
-  readonly solid = new ParticleSystem({ capacity: 2500, additive: false });
+  readonly glow = new ParticleSystem({ capacity: 4000, additive: true });
+  readonly solid = new ParticleSystem({ capacity: 1500, additive: false });
   private shells: Shell[] = [];
   private rings: Ring[] = [];
   private skids: InstancedMesh;
@@ -137,9 +137,17 @@ export class Effects {
       SKIDS,
     );
     this.skids.frustumCulled = false;
+    this.skids.visible = false; // se muestra al dejar la primera marca
     const hide = new Matrix4().makeScale(0, 0, 0);
     for (let i = 0; i < SKIDS; i++) this.skids.setMatrixAt(i, hide);
     this.group.add(this.skids);
+  }
+
+  /** Multiplicador de la tasa de emisión continua (nivel de calidad). */
+  private rate = 1;
+
+  setRate(k: number): void {
+    this.rate = k;
   }
 
   /** Escala el tamaño de las partículas que se emiten a partir de ahora. */
@@ -442,7 +450,7 @@ export class Effects {
 
       // Turbo: llama de partículas desde los escapes.
       if (car.boosting) {
-        this.acc[i * 3] += dt * 130;
+        this.acc[i * 3] += dt * 130 * this.rate;
         while (this.acc[i * 3] >= 1) {
           this.acc[i * 3]--;
           const ex = v.exhaust[Math.random() < 0.5 ? 0 : 1];
@@ -489,7 +497,7 @@ export class Effects {
 
       // Estela supersónica.
       if (Math.abs(car.fwdSpeed) >= 2200) {
-        this.acc[i * 3 + 1] += dt * 90;
+        this.acc[i * 3 + 1] += dt * 90 * this.rate;
         while (this.acc[i * 3 + 1] >= 1) {
           this.acc[i * 3 + 1]--;
           const side = Math.random() < 0.5 ? 1 : -1;
@@ -516,7 +524,7 @@ export class Effects {
 
       // Derrape: humo y marcas en el suelo.
       if (car.handbrake && car.grounded && Math.abs(car.fwdSpeed) > 500) {
-        this.acc[i * 3 + 2] += dt * 55;
+        this.acc[i * 3 + 2] += dt * 55 * this.rate;
         while (this.acc[i * 3 + 2] >= 1) {
           this.acc[i * 3 + 2]--;
           const wp = v.rearWheels[Math.random() < 0.5 ? 0 : 1];
@@ -557,6 +565,7 @@ export class Effects {
             this.skids.setMatrixAt(this.skidCursor, dummy.matrix);
             this.skidCursor = (this.skidCursor + 1) % SKIDS;
             this.skids.instanceMatrix.needsUpdate = true;
+            this.skids.visible = true;
             last.set(x, y, 0);
           }
         }

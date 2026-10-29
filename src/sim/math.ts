@@ -70,7 +70,10 @@ export class Vec3 {
     return l > max ? this.scale(max / l) : this;
   }
   distanceTo(v: Vec3): number {
-    return Math.hypot(this.x - v.x, this.y - v.y, this.z - v.z);
+    const dx = this.x - v.x;
+    const dy = this.y - v.y;
+    const dz = this.z - v.z;
+    return Math.sqrt(dx * dx + dy * dy + dz * dz);
   }
   lerpOf(a: Vec3, b: Vec3, t: number): this {
     return this.set(a.x + (b.x - a.x) * t, a.y + (b.y - a.y) * t, a.z + (b.z - a.z) * t);
@@ -98,7 +101,7 @@ export class Quat {
     return new Quat(this.x, this.y, this.z, this.w);
   }
   normalize(): this {
-    const l = Math.hypot(this.x, this.y, this.z, this.w) || 1;
+    const l = Math.sqrt(this.x * this.x + this.y * this.y + this.z * this.z + this.w * this.w) || 1;
     return this.set(this.x / l, this.y / l, this.z / l, this.w / l);
   }
   static fromAxisAngle(ax: number, ay: number, az: number, angle: number): Quat {
@@ -144,3 +147,6 @@ export class Quat {
 export const clamp = (v: number, lo: number, hi: number): number => (v < lo ? lo : v > hi ? hi : v);
 export const lerp = (a: number, b: number, t: number): number => a + (b - a) * t;
 export const sign = (v: number): number => (v < 0 ? -1 : 1);
+
+/** Hipotenusa de 2 componentes sin `Math.hypot` (que reserva memoria en cada llamada). */
+export const hyp2 = (a: number, b: number): number => Math.sqrt(a * a + b * b);

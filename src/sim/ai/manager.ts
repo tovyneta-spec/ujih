@@ -2,7 +2,7 @@
 import { BOT_PROFILES } from '../../config';
 import type { BotLevel } from '../../config';
 import type { Car } from '../car';
-import { Vec3 } from '../math';
+import { Vec3, hyp2 } from '../math';
 import { Rng } from '../rng';
 import type { SimEvent, World } from '../world';
 import { Bot } from './bot';
@@ -20,6 +20,11 @@ export class BotManager {
   private roles = new Map<number, Role>();
   private ctx: BotContext;
   private lastChat = new Map<number, number>();
+  private lastPlanTick = -100;
+  private lastRoleTick = -100;
+  /** Coches por equipo (se recalcula sólo si cambia el número de coches). */
+  private byTeam: [Car[], Car[]] = [[], []];
+  private cachedCars = -1;
 
   constructor(
     private readonly world: World,
@@ -55,7 +60,7 @@ export class BotManager {
 
   /** Tiempo estimado (s) que tarda un coche en llegar a un punto. */
   private eta(car: Car, p: Vec3): number {
-    const dist = Math.hypot(p.x - car.pos.x, p.y - car.pos.y);
+    const dist = hyp2(p.x - car.pos.x, p.y - car.pos.y);
     const turn = Math.abs(bearing(car, p));
     const speed = car.boost > 10 ? 1750 : 1300;
     const v0 = Math.max(0, car.forwardSpeed);
@@ -88,14 +93,22 @@ export class BotManager {
       this.predictor.predict(world.ball, world.time);
       this.lastPredictTick = world.tick;
     }
-    for (const bot of this.bots)
-      this.computeIntercept(bot.car, this.intercepts.get(bot.car.id) as Intercept);
-    this.assignRoles();
+    this.refreshTeams();
+    // Intercepciones a 30 Hz y roles a 10 Hz: no hace falta recalcularlos en cada paso de física.
+    if (world.tick - this.lastPlanTick >= 4) {
+      this.lastPlanTick = world.tick;
+      for (const bot of this.bots)
+        this.computeIntercept(bot.car, this.intercepts.get(bot.car.id) as Intercept);
+    }
+    if (world.tick - this.lastRoleTick >= 12) {
+      this.lastRoleTick = world.tick;
+      this.assignRoles();
+    }
 
     for (const bot of this.bots) {
       const car = bot.car;
-      const mates = world.cars.filter((c) => c.team === car.team);
-      const foes = world.cars.filter((c) => c.team !== car.team);
+      const mates = this.byTeam[car.team];
+      const foes = this.byTeam[car.team === 0 ? 1 : 0];
       const ctx = this.ctx;
       ctx.role = this.roles.get(car.id) ?? 'attack';
       ctx.intercept = this.intercepts.get(car.id) as Intercept;
@@ -108,12 +121,21 @@ export class BotManager {
     }
   }
 
+  private refreshTeams(): void {
+    if (this.cachedCars === this.world.cars.length) return;
+    this.cachedCars = this.world.cars.length;
+    this.byTeam = [
+      this.world.cars.filter((c) => c.team === 0),
+      this.world.cars.filter((c) => c.team === 1),
+    ];
+  }
+
   private isKickoffTaker(car: Car, mates: readonly Car[]): boolean {
     const ball = this.world.ball.pos;
     let best = car;
     let bd = Infinity;
     for (const m of mates) {
-      const d = Math.hypot(m.pos.x - ball.x, m.pos.y - ball.y);
+      const d = hyp2(m.pos.x - ball.x, m.pos.y - ball.y);
       if (d < bd - 1) {
         bd = d;
         best = m;

@@ -73,8 +73,8 @@ de gol. Saltar la repetición llama a `Match.skipReplay`, que lleva directamente
 
 Todo se sintetiza en tiempo real con WebAudio (sin archivos): motor (dos osciladores por coche con tono según
 velocidad, atenuación por distancia y panorama estéreo respecto a la cámara), turbo (ruido filtrado), impactos
-según intensidad, demolición, pads, cuenta atrás, bocina de dos tonos y ovación del público, sonidos de
-interfaz y música generativa Am–F–C–G opcional. El contexto se crea tras la primera interacción (autoplay).
+según intensidad, demolición, pads, cuenta atrás, bocina de dos tonos y ovación del público y sonidos de
+interfaz (sin música). El contexto se crea tras la primera interacción (autoplay).
 Las funciones puras (`dsp.ts`) están cubiertas por tests.
 
 ## IA de bots (`src/sim/ai/`)

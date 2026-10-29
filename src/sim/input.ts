@@ -38,3 +38,15 @@ export function copyInput(src: CarInput, dst: CarInput): void {
   dst.boost = src.boost;
   dst.handbrake = src.handbrake;
 }
+
+/** Restablece una entrada a neutra sin crear objetos nuevos. */
+export function resetInput(i: CarInput): void {
+  i.throttle = 0;
+  i.steer = 0;
+  i.pitch = 0;
+  i.yaw = 0;
+  i.roll = 0;
+  i.jump = false;
+  i.boost = false;
+  i.handbrake = false;
+}

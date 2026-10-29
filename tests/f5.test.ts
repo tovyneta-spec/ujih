@@ -11,7 +11,7 @@ import {
   TRAILS,
   WHEEL_STYLES,
 } from '../src/config';
-import { distanceGain, engineFrequency, midiToHz, musicStep, panFor } from '../src/audio/dsp';
+import { distanceGain, engineFrequency, panFor } from '../src/audio/dsp';
 import { ParticleSystem } from '../src/render/particles';
 import { sanitizeAudio, sanitizeGarage } from '../src/storage';
 import { World, neutralInput } from '../src/sim';
@@ -76,19 +76,12 @@ describe('audio (funciones puras y ajustes)', () => {
     expect(panFor(-500, 0, 0, 1, 0, 0)).toBeLessThan(-0.9);
     expect(panFor(0, 500, 0, 1, 0, 0)).toBeCloseTo(0, 5);
   });
-  it('la música recorre Am–F–C–G y repite', () => {
-    expect(midiToHz(69)).toBeCloseTo(440, 5);
-    const roots = [0, 8, 16, 24, 32].map((s) => musicStep(s).chord[0]);
-    expect(roots).toEqual([57, 53, 48, 55, 57]);
-    expect(musicStep(3).arp).toBeGreaterThan(0);
-  });
-  it('sanea los volúmenes', () => {
-    expect(sanitizeAudio({ master: 5, sfx: -1, music: 'x', musicOn: 'sí' })).toEqual({
+  it('sanea los volúmenes e ignora campos antiguos (música)', () => {
+    expect(sanitizeAudio({ master: 5, sfx: -1, music: 0.4, musicOn: true })).toEqual({
       master: 1,
       sfx: 0,
-      music: 0.5,
-      musicOn: true,
     });
+    expect(sanitizeAudio(null)).toEqual({ master: 0.8, sfx: 0.9 });
   });
 });
 

@@ -68,7 +68,6 @@ body {
   stroke-width: 10;
   stroke-linecap: round;
   transition: stroke-dashoffset 80ms linear;
-  filter: drop-shadow(0 0 6px rgba(255, 150, 20, 0.8));
 }
 .boost-fg.super {
   stroke: #ffe9a6;
@@ -479,10 +478,9 @@ button {
   width: min(94vw, 560px);
   padding: 28px 30px;
   text-align: center;
-  background: rgba(10, 16, 36, 0.82);
+  background: rgba(10, 16, 36, 0.9);
   border: 1px solid rgba(255, 255, 255, 0.12);
   border-radius: 18px;
-  backdrop-filter: blur(6px);
   box-shadow: 0 20px 60px rgba(0, 0, 0, 0.55);
 }
 .menu h1.title {

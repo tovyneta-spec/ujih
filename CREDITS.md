@@ -3,8 +3,8 @@
 ## Código y assets propios
 
 Todos los modelos (estadio, coche, pelota), texturas (suelo, paredes, redes, pelota) y efectos se generan por
-código en tiempo de ejecución. No se incluye ningún asset de terceros. El audio (motor, impactos, bocina, ovación,
-música) se sintetiza en tiempo real con WebAudio; no hay archivos de sonido.
+código en tiempo de ejecución. No se incluye ningún asset de terceros. El audio (motor, impactos, bocina, ovación)
+se sintetiza en tiempo real con WebAudio; no hay archivos de sonido.
 
 ## Dependencias (empaquetadas en el build, sin CDN)
 

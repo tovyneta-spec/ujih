@@ -17,6 +17,24 @@ sintetizado** con WebAudio, y un **garaje** con 6 carrocerías y personalizació
 > teclas, ajustes de cámara, mando (Gamepad) y táctil, y mini-tutorial. El teclado usa las teclas por defecto de
 > `src/config/controls.ts`.
 
+## Rendimiento (60 FPS en portátiles sin GPU dedicada)
+
+El juego elige el nivel gráfico al arrancar según la GPU (`WEBGL_debug_renderer_info`) y un **gobernador de
+rendimiento** reduce la resolución de render (hasta 0,5×) y, si hace falta, el nivel, para sostener 60 FPS; si
+sobra rendimiento los vuelve a subir. No hay pantalla de ajustes: es automático.
+
+| Nivel | Se usa en                      | Qué incluye                                                                                                   |
+| ----- | ------------------------------ | ------------------------------------------------------------------------------------------------------------- |
+| Bajo  | GPU integrada, móvil, software | Sin post-proceso, sin sombras (manchas), materiales Lambert, sin público, ruedas fusionadas, resolución 0,85× |
+| Medio | GPU integrada que va sobrada   | Bloom, sombras 1024 de pocos objetos (cada 2 frames), público                                                 |
+| Alto  | GPU dedicada / Apple silicon   | MSAA ×4, bloom, sombras suaves 2048, reflejos, todo el detalle                                                |
+
+Para forzarlo en pruebas: `?q=low|medium|high` (y `&adapt=0` desactiva el gobernador). Con `F3` se ve el nivel,
+la escala, el tiempo de frame, las llamadas de dibujo y los triángulos.
+
+Medidas (renderizado **por software**, el peor caso posible, 3v3, 960×540): alto 1,7 FPS → bajo 23 FPS; llamadas de
+dibujo 158 → 35; la física cuesta ≈0,07 ms por tick y la basura generada por la simulación cae de 47 a 8,6 KB/tick.
+
 ## Menús y pantallas
 
 - **Menú principal**: Jugar (formato, equipo, nivel de bots), Partida personalizada (todos los mutadores),
@@ -24,7 +42,7 @@ sintetizado** con WebAudio, y un **garaje** con 6 carrocerías y personalizació
 - **Garaje**: vista previa 3D giratoria con cambios en vivo. Carrocería (Cometa, Dominador, Tablón, Estallido,
   Híbrido, Mercenario; cada una con su hitbox), colores primario y secundario, 5 estilos de ruedas, 5 estelas de
   turbo, 3 explosiones de gol, antena, calcomanía y nombre. Se guarda en `localStorage`.
-- **Audio**: volumen general, efectos y música (con interruptor). El audio arranca tras la primera interacción.
+- **Audio**: volumen general y efectos. El audio arranca tras la primera interacción. No hay música.
 - **Pausa** (`Esc`, o automática al perder el foco): Continuar, Reiniciar partida, Abandonar.
 - **Repetición**: tras cada gol y 2,5 s de juego libre se reproducen ≈7 s con tres planos (seguimiento del
   goleador, órbita sobre la pelota y cámara de línea de gol). `Espacio` o clic para saltarla.

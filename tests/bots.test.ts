@@ -130,15 +130,23 @@ describe('juego de los bots', () => {
     let maxSpeed = 0;
     let maxJump = 0;
     const last = w.cars.map((c) => c.pos.clone());
+    const wasDown = w.cars.map(() => false);
+    let lastPhase = w.match.phase;
     for (let i = 0; i < 120 * 40; i++) {
       bm.update();
       w.step();
       w.drainEvents();
       w.cars.forEach((c, k) => {
         maxSpeed = Math.max(maxSpeed, c.vel.length());
-        maxJump = Math.max(maxJump, c.pos.distanceTo(last[k]));
+        // Los saltos de posición por demolición/reaparición no cuentan (es una regla, no un truco).
+        const reset = w.match.phase !== lastPhase; // saque tras un gol: todos vuelven a su sitio
+        if (!c.demolished && !wasDown[k] && !reset) {
+          maxJump = Math.max(maxJump, c.pos.distanceTo(last[k]));
+        }
+        wasDown[k] = c.demolished || (c.respawnTimer > 0 && c.demolished);
         last[k].copy(c.pos);
       });
+      lastPhase = w.match.phase;
     }
     expect(maxSpeed).toBeLessThanOrEqual(2300.01);
     // Salvo reapariciones tras demolición, nunca se desplazan más de lo que permite la velocidad.

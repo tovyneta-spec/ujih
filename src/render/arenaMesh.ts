@@ -1,21 +1,27 @@
 // Geometría visual del estadio generada proceduralmente a partir de las mismas dimensiones que la colisión.
 import {
-  BackSide,
   BufferGeometry,
   Color,
   CylinderGeometry,
   DoubleSide,
+  Euler,
   Float32BufferAttribute,
   Group,
+  Matrix4,
   Mesh,
   MeshBasicMaterial,
+  MeshLambertMaterial,
   MeshStandardMaterial,
   PlaneGeometry,
+  Quaternion,
   SphereGeometry,
   Vector3,
 } from 'three';
+import type { ColorRepresentation, Texture } from 'three';
 import { ARENA } from '../config';
 import type { ThemeSpec } from '../config';
+import { mergeGeometries } from 'three/examples/jsm/utils/BufferGeometryUtils.js';
+import type { Quality } from './quality';
 import { makeFloorTexture, makeNetTexture, makeWallTexture } from './textures';
 
 const HX = ARENA.halfWidth;
@@ -140,7 +146,7 @@ function teamTint(y: number, base: number): Color {
   return tint.multiplyScalar(base);
 }
 
-function wallGeometry(theme: ThemeSpec): BufferGeometry {
+function wallGeometry(theme: ThemeSpec, glass: boolean): BufferGeometry {
   cBlue.set(theme.wallBlue);
   cOrange.set(theme.wallOrange);
   const pos: number[] = [];
@@ -165,7 +171,7 @@ function wallGeometry(theme: ThemeSpec): BufferGeometry {
         const k = teamTint(c.y, ramp * (0.7 + 0.3 * (1 - Math.abs(p.z - H * 0.4) / H)));
         // Opaco abajo y en las rampas; semitransparente arriba para ver las gradas.
         const alpha =
-          p.z < 300 || p.z > H - RR
+          !glass || p.z < 300 || p.z > H - RR
             ? 0.96
             : Math.max(theme.wallOpacity, 0.96 - ((p.z - 300) / 500) * (0.96 - theme.wallOpacity));
         col.push(k.r, k.g, k.b, alpha);
@@ -234,12 +240,15 @@ function capGeometry(
   return g;
 }
 
-function bar(a: Vector3, b: Vector3, radius: number, mat: MeshStandardMaterial): Mesh {
+function barGeometry(a: Vector3, b: Vector3, radius: number): BufferGeometry {
   const len = a.distanceTo(b);
-  const m = new Mesh(new CylinderGeometry(radius, radius, len, 10), mat);
-  m.position.copy(a).add(b).multiplyScalar(0.5);
-  m.quaternion.setFromUnitVectors(new Vector3(0, 1, 0), b.clone().sub(a).normalize());
-  return m;
+  const g = new CylinderGeometry(radius, radius, len, 10);
+  const m = new Matrix4().compose(
+    a.clone().add(b).multiplyScalar(0.5),
+    new Quaternion().setFromUnitVectors(new Vector3(0, 1, 0), b.clone().sub(a).normalize()),
+    new Vector3(1, 1, 1),
+  );
+  return g.applyMatrix4(m);
 }
 
 export interface ArenaVisual {
@@ -248,32 +257,71 @@ export interface ArenaVisual {
 }
 
 /** Construye el estadio en el espacio de la simulación (z arriba). */
-export function buildArena(theme: ThemeSpec): ArenaVisual {
+/** Material PBR o Lambert según el nivel de calidad. */
+function surface(
+  q: Quality,
+  params: {
+    map?: Texture | null;
+    color?: ColorRepresentation;
+    emissive?: ColorRepresentation;
+    vertexColors?: boolean;
+    transparent?: boolean;
+    roughness?: number;
+    metalness?: number;
+  },
+): MeshStandardMaterial | MeshLambertMaterial {
+  const base = {
+    map: params.map ?? null,
+    color: params.color ?? 0xffffff,
+    emissive: params.emissive ?? 0x000000,
+    vertexColors: params.vertexColors ?? false,
+    transparent: params.transparent ?? false,
+    side: DoubleSide,
+  };
+  return q.lambert
+    ? new MeshLambertMaterial(base)
+    : new MeshStandardMaterial({
+        ...base,
+        roughness: params.roughness ?? 0.6,
+        metalness: params.metalness ?? 0.1,
+      });
+}
+
+/** Aplica una matriz a una geometría y escala su UV (para repetir la textura de la red). */
+function placed(geo: BufferGeometry, m: Matrix4, repeatU = 1, repeatV = 1): BufferGeometry {
+  const uv = geo.getAttribute('uv');
+  for (let i = 0; i < uv.count; i++) uv.setXY(i, uv.getX(i) * repeatU, uv.getY(i) * repeatV);
+  return geo.applyMatrix4(m);
+}
+
+const mat4 = (x: number, y: number, z: number, rx = 0, ry = 0, rz = 0): Matrix4 =>
+  new Matrix4().compose(
+    new Vector3(x, y, z),
+    new Quaternion().setFromEuler(new Euler(rx, ry, rz)),
+    new Vector3(1, 1, 1),
+  );
+
+/** Construye el estadio en el espacio de la simulación (z arriba). Pocas llamadas de dibujo: todo fusionado. */
+export function buildArena(theme: ThemeSpec, q: Quality): ArenaVisual {
   const group = new Group();
   group.name = 'arena';
 
   const wallTex = makeWallTexture();
   const floorTex = makeFloorTexture(theme);
   const netTex = makeNetTexture();
+  wallTex.anisotropy = floorTex.anisotropy = q.anisotropy;
 
-  const wallMat = new MeshStandardMaterial({
+  // Paredes: semitransparentes sólo si hay gradas que mostrar detrás.
+  const wallMat = surface(q, {
     map: wallTex,
     vertexColors: true,
-    roughness: 0.55,
-    metalness: 0.1,
-    side: DoubleSide,
-    transparent: true,
+    transparent: q.crowd,
     emissive: new Color(theme.wallEmissive),
-    emissiveIntensity: 1,
+    roughness: 0.55,
   });
-  group.add(new Mesh(wallGeometry(theme), wallMat));
+  group.add(new Mesh(wallGeometry(theme, q.crowd), wallMat));
 
-  const floorMat = new MeshStandardMaterial({
-    map: floorTex,
-    roughness: 0.75,
-    metalness: 0.05,
-    side: DoubleSide,
-  });
+  const floorMat = surface(q, { map: floorTex, roughness: 0.75, metalness: 0.05 });
   const floor = new Mesh(
     capGeometry(0, 1, (x, y) => [(x + HX) / (HX * 2), (y + HY) / (HY * 2)]),
     floorMat,
@@ -281,12 +329,11 @@ export function buildArena(theme: ThemeSpec): ArenaVisual {
   floor.receiveShadow = true;
   group.add(floor);
 
-  const ceilMat = new MeshStandardMaterial({
+  const ceilMat = surface(q, {
     map: wallTex,
     color: theme.ceiling,
-    roughness: 0.7,
     emissive: new Color(theme.ceilingEmissive),
-    side: DoubleSide,
+    roughness: 0.7,
   });
   group.add(
     new Mesh(
@@ -295,70 +342,87 @@ export function buildArena(theme: ThemeSpec): ArenaVisual {
     ),
   );
 
-  // Suelo dentro de las porterías (el recorte de la rampa deja el suelo plano hasta la línea de fondo).
+  // Suelo dentro de las porterías (una sola malla con color por vértice).
+  const goalFloors: BufferGeometry[] = [];
+  const pr = ARENA.goal.postRadius;
   for (const s of [-1, 1]) {
     const len = GD + RR;
-    const plane = new Mesh(new PlaneGeometry(GX * 2, len), floorMat.clone());
-    (plane.material as MeshStandardMaterial).map = null;
-    (plane.material as MeshStandardMaterial).color = new Color(s < 0 ? 0x16306b : 0x7a3410);
-    plane.position.set(0, s * (HY - RR + len / 2), 0.2);
-    plane.receiveShadow = true;
-    group.add(plane);
-
-    const teamCol = s < 0 ? blue : orange;
-    const netMat = new MeshBasicMaterial({
-      map: netTex,
-      color: teamCol,
-      transparent: true,
-      opacity: 0.75,
-      side: DoubleSide,
-      depthWrite: false,
-    });
-    const back = new Mesh(new PlaneGeometry(GX * 2, GZ), netMat);
-    back.rotation.x = Math.PI / 2;
-    back.position.set(0, s * (HY + GD), GZ / 2);
-    (back.material as MeshBasicMaterial).map = netTex.clone();
-    (back.material as MeshBasicMaterial).map!.repeat.set((GX * 2) / 60, GZ / 60);
-    group.add(back);
-    for (const sx of [-1, 1]) {
-      const side = new Mesh(new PlaneGeometry(GD, GZ), netMat.clone());
-      side.rotation.set(Math.PI / 2, 0, Math.PI / 2);
-      side.position.set(sx * GX, s * (HY + GD / 2), GZ / 2);
-      (side.material as MeshBasicMaterial).map = netTex.clone();
-      (side.material as MeshBasicMaterial).map!.repeat.set(GD / 60, GZ / 60);
-      group.add(side);
+    const g = placed(new PlaneGeometry(GX * 2, len), mat4(0, s * (HY - RR + len / 2), 0.2));
+    const c = new Color(s < 0 ? 0x16306b : 0x7a3410);
+    const colors = new Float32Array(g.getAttribute('position').count * 3);
+    for (let i = 0; i < colors.length; i += 3) {
+      colors[i] = c.r;
+      colors[i + 1] = c.g;
+      colors[i + 2] = c.b;
     }
-    const roof = new Mesh(new PlaneGeometry(GX * 2, GD), netMat.clone());
-    roof.position.set(0, s * (HY + GD / 2), GZ);
-    (roof.material as MeshBasicMaterial).map = netTex.clone();
-    (roof.material as MeshBasicMaterial).map!.repeat.set((GX * 2) / 60, GD / 60);
-    group.add(roof);
-
-    // Postes y larguero.
-    const postMat = new MeshStandardMaterial({
-      color: 0xf2f4fa,
-      emissive: teamCol,
-      emissiveIntensity: 0.55,
-      roughness: 0.3,
-    });
-    const pr = ARENA.goal.postRadius;
-    for (const sx of [-1, 1]) {
-      group.add(
-        bar(new Vector3(sx * GX, s * HY, 0), new Vector3(sx * GX, s * HY, GZ), pr, postMat),
-      );
-      const ball = new Mesh(new SphereGeometry(pr, 10, 8), postMat);
-      ball.position.set(sx * GX, s * HY, GZ);
-      group.add(ball);
-    }
-    group.add(bar(new Vector3(-GX, s * HY, GZ), new Vector3(GX, s * HY, GZ), pr, postMat));
+    g.setAttribute('color', new Float32BufferAttribute(colors, 3));
+    goalFloors.push(g);
   }
-
-  // Fondo exterior oscuro visible a través de las porterías.
-  const outer = new Mesh(
-    new SphereGeometry(18000, 16, 12),
-    new MeshBasicMaterial({ color: theme.background, side: BackSide, depthWrite: false }),
+  const goalFloor = new Mesh(
+    mergeGeometries(goalFloors) as BufferGeometry,
+    surface(q, { vertexColors: true, roughness: 0.8 }),
   );
-  group.add(outer);
+  goalFloor.receiveShadow = true;
+  group.add(goalFloor);
+
+  for (const s of [-1, 1]) {
+    const teamCol = s < 0 ? blue : orange;
+    // Red: fondo, dos laterales y techo en una sola malla.
+    const netParts = [
+      placed(
+        new PlaneGeometry(GX * 2, GZ),
+        mat4(0, s * (HY + GD), GZ / 2, Math.PI / 2),
+        (GX * 2) / 60,
+        GZ / 60,
+      ),
+      placed(
+        new PlaneGeometry(GD, GZ),
+        mat4(-GX, s * (HY + GD / 2), GZ / 2, Math.PI / 2, 0, Math.PI / 2),
+        GD / 60,
+        GZ / 60,
+      ),
+      placed(
+        new PlaneGeometry(GD, GZ),
+        mat4(GX, s * (HY + GD / 2), GZ / 2, Math.PI / 2, 0, Math.PI / 2),
+        GD / 60,
+        GZ / 60,
+      ),
+      placed(new PlaneGeometry(GX * 2, GD), mat4(0, s * (HY + GD / 2), GZ), (GX * 2) / 60, GD / 60),
+    ];
+    group.add(
+      new Mesh(
+        mergeGeometries(netParts) as BufferGeometry,
+        new MeshBasicMaterial({
+          map: netTex,
+          color: teamCol,
+          transparent: true,
+          opacity: 0.75,
+          side: DoubleSide,
+          depthWrite: false,
+        }),
+      ),
+    );
+
+    // Postes, remates y larguero en una sola malla.
+    const postParts: BufferGeometry[] = [];
+    for (const sx of [-1, 1]) {
+      postParts.push(
+        barGeometry(new Vector3(sx * GX, s * HY, 0), new Vector3(sx * GX, s * HY, GZ), pr),
+      );
+      postParts.push(placed(new SphereGeometry(pr, 10, 8), mat4(sx * GX, s * HY, GZ)));
+    }
+    postParts.push(barGeometry(new Vector3(-GX, s * HY, GZ), new Vector3(GX, s * HY, GZ), pr));
+    group.add(
+      new Mesh(
+        mergeGeometries(postParts) as BufferGeometry,
+        surface(q, {
+          color: 0xf2f4fa,
+          emissive: new Color(teamCol).multiplyScalar(0.55),
+          roughness: 0.3,
+        }),
+      ),
+    );
+  }
 
   return {
     group,

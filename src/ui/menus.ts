@@ -553,34 +553,26 @@ export class Menus {
 
   private renderAudio(): void {
     const a = this.audio;
-    const slider = (key: 'master' | 'sfx' | 'music', label: string): string =>
+    const slider = (key: 'master' | 'sfx', label: string): string =>
       `<label class="field slider"><span>${label} <b data-val="${key}">${Math.round(a[key] * 100)}</b></span>
         <input type="range" min="0" max="100" value="${Math.round(a[key] * 100)}" data-vol="${key}" /></label>`;
     this.render(`
       <h2>Audio</h2>
       ${slider('master', 'Volumen general')}
       ${slider('sfx', 'Efectos')}
-      ${slider('music', 'Música')}
-      <label class="check"><input type="checkbox" data-music ${a.musicOn ? 'checked' : ''} /> Música de fondo</label>
       <div class="buttons">
         <button class="btn" data-go="test">Probar sonido</button>
         <button class="btn primary" data-go="back">Volver</button>
       </div>`);
     this.root.querySelectorAll<HTMLInputElement>('input[data-vol]').forEach((i) =>
       i.addEventListener('input', () => {
-        const key = i.dataset.vol as 'master' | 'sfx' | 'music';
+        const key = i.dataset.vol as 'master' | 'sfx';
         this.audio = { ...this.audio, [key]: Number(i.value) / 100 };
         const out = this.root.querySelector(`[data-val=${key}]`);
         if (out) out.textContent = i.value;
         this.cb.audioChange(this.audio);
       }),
     );
-    this.root
-      .querySelector<HTMLInputElement>('input[data-music]')
-      ?.addEventListener('change', (e) => {
-        this.audio = { ...this.audio, musicOn: (e.target as HTMLInputElement).checked };
-        this.cb.audioChange(this.audio);
-      });
     this.on('[data-go=test]', () => this.cb.ui('click'));
     this.on('[data-go=back]', () => this.open('main'));
   }

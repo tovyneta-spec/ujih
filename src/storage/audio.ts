@@ -2,11 +2,9 @@
 export interface AudioSettings {
   master: number;
   sfx: number;
-  music: number;
-  musicOn: boolean;
 }
 
-export const DEFAULT_AUDIO: AudioSettings = { master: 0.8, sfx: 0.9, music: 0.5, musicOn: true };
+export const DEFAULT_AUDIO: AudioSettings = { master: 0.8, sfx: 0.9 };
 
 const KEY = 'turbo-arena:audio';
 
@@ -19,8 +17,6 @@ export function sanitizeAudio(raw: unknown): AudioSettings {
   return {
     master: unit(r.master, d.master),
     sfx: unit(r.sfx, d.sfx),
-    music: unit(r.music, d.music),
-    musicOn: typeof r.musicOn === 'boolean' ? r.musicOn : d.musicOn,
   };
 }
 

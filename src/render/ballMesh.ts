@@ -5,10 +5,12 @@ import {
   IcosahedronGeometry,
   Mesh,
   MeshBasicMaterial,
+  MeshLambertMaterial,
   MeshStandardMaterial,
   PlaneGeometry,
 } from 'three';
 import { BALL } from '../config';
+import type { Quality } from './quality';
 import { makeBallTexture, makeBlobTexture } from './textures';
 
 export interface BallVisual {
@@ -18,20 +20,21 @@ export interface BallVisual {
   blob: Mesh;
 }
 
-export function buildBallMesh(): BallVisual {
+export function buildBallMesh(q: Quality): BallVisual {
   const group = new Group();
   const tex = makeBallTexture();
-  const mesh = new Mesh(
-    new IcosahedronGeometry(BALL.radius, 4),
-    new MeshStandardMaterial({
-      map: tex,
-      emissiveMap: tex,
-      emissive: new Color(0x445577),
-      emissiveIntensity: 0.6,
-      roughness: 0.35,
-      metalness: 0.25,
-    }),
-  );
+  tex.anisotropy = q.anisotropy;
+  const material = q.lambert
+    ? new MeshLambertMaterial({ map: tex, emissiveMap: tex, emissive: new Color(0x667799) })
+    : new MeshStandardMaterial({
+        map: tex,
+        emissiveMap: tex,
+        emissive: new Color(0x445577),
+        emissiveIntensity: 0.6,
+        roughness: 0.35,
+        metalness: 0.25,
+      });
+  const mesh = new Mesh(new IcosahedronGeometry(BALL.radius, q.ballDetail), material);
   mesh.castShadow = true;
   group.add(mesh);
 

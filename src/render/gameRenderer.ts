@@ -10,9 +10,11 @@ import {
   HemisphereLight,
   Mesh,
   MeshStandardMaterial,
+  PCFShadowMap,
   PCFSoftShadowMap,
   CylinderGeometry,
   PMREMGenerator,
+  type Texture,
   PerspectiveCamera,
   Quaternion,
   Scene,
@@ -35,8 +37,8 @@ import { buildArena } from './arenaMesh';
 import type { ArenaVisual } from './arenaMesh';
 import { buildBallMesh } from './ballMesh';
 import type { BallVisual } from './ballMesh';
-import { buildPadMeshes, updatePadVisual } from './boostPadMesh';
-import type { PadVisual } from './boostPadMesh';
+import { buildPadMeshes } from './boostPadMesh';
+import type { PadVisuals } from './boostPadMesh';
 import { CameraRig } from './cameraRig';
 import type { CameraPose } from './cameraRig';
 import { buildCarMesh } from './carMesh';
@@ -44,6 +46,9 @@ import type { CarLook, CarVisual } from './carMesh';
 import { DebugDraw } from './debugDraw';
 import { Effects, createFxCar } from './effects';
 import type { FxCar } from './effects';
+import { TIERS } from './quality';
+import type { Quality, Tier } from './quality';
+import { ShadowBlobs } from './shadowBlobs';
 import { buildStadium } from './stadium';
 import type { StadiumVisual } from './stadium';
 
@@ -68,8 +73,16 @@ export class GameRenderer {
   private arena: ArenaVisual | null = null;
   private stadium: StadiumVisual | null = null;
   private ball: BallVisual;
-  private padVisuals: PadVisual[] = [];
-  private padsGroup: Group | null = null;
+  private pads: PadVisuals | null = null;
+  private blobs = new ShadowBlobs(8);
+  /** Nivel de calidad vigente (puede cambiar en caliente por el gobernador). */
+  quality: Quality = TIERS.medium;
+  private envTexture: Texture | null = null;
+  private lookOf: ((carId: number) => CarLook) | null = null;
+  private explosionOf: (carId: number) => GoalExplosion = () => 'classic';
+  private renderScale = 1;
+  private frameCounter = 0;
+  private visuals: CarVisual[] = [];
   private cars: { visual: CarVisual; wheelSpin: number }[] = [];
   private trails: TrailStyle[] = [];
   private explosions: GoalExplosion[] = [];
@@ -84,8 +97,8 @@ export class GameRenderer {
   carRenderPos: Vec3[] = [];
 
   // Post-proceso.
-  private composer: EffectComposer;
-  private bloom: UnrealBloomPass;
+  private composer: EffectComposer | null = null;
+  private bloom: UnrealBloomPass | null = null;
 
   // Vista previa del garaje.
   private preview: { visual: CarVisual; platform: Mesh; time: number } | null = null;
@@ -102,30 +115,28 @@ export class GameRenderer {
   private height = 1;
   private lastTime = 0;
 
-  constructor(canvas: HTMLCanvasElement) {
+  constructor(canvas: HTMLCanvasElement, tier: Tier = 'medium') {
+    this.quality = TIERS[tier];
     this.renderer = new WebGLRenderer({
       canvas,
-      antialias: false,
+      // El MSAA del contexto sólo se usa al dibujar directo (nivel bajo): en las GPU débiles se evita.
+      antialias: tier === 'high',
       powerPreference: 'high-performance',
     });
-    this.renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 2));
+    this.renderer.info.autoReset = false;
     this.renderer.toneMapping = ACESFilmicToneMapping;
-    this.renderer.shadowMap.enabled = true;
-    this.renderer.shadowMap.type = PCFSoftShadowMap;
 
     this.simRoot.rotation.x = -Math.PI / 2;
     this.scene.add(this.simRoot);
 
-    // Reflejos baratos: entorno procedural prefiltrado una sola vez.
+    // Reflejos baratos: entorno procedural prefiltrado una sola vez (sólo se usa en el nivel alto).
     const pmrem = new PMREMGenerator(this.renderer);
-    this.scene.environment = pmrem.fromScene(new RoomEnvironment(), 0.04).texture;
+    this.envTexture = pmrem.fromScene(new RoomEnvironment(), 0.04).texture;
     pmrem.dispose();
 
     this.hemi = new HemisphereLight(0xcfe0ff, 0x2a3350, 1.15);
     this.scene.add(this.hemi);
     this.sun = new DirectionalLight(0xfff3dd, 2.4);
-    this.sun.castShadow = true;
-    this.sun.shadow.mapSize.set(2048, 2048);
     const sc = this.sun.shadow.camera;
     sc.left = -SHADOW_RANGE;
     sc.right = SHADOW_RANGE;
@@ -137,24 +148,113 @@ export class GameRenderer {
     this.sun.shadow.normalBias = 2;
     this.scene.add(this.sun, this.sun.target);
 
-    this.ball = buildBallMesh();
-    this.simRoot.add(this.ball.group, this.ball.blob);
+    this.ball = buildBallMesh(this.quality);
+    this.simRoot.add(this.ball.group, this.ball.blob, this.blobs.mesh);
     this.simRoot.add(this.debug.group, this.effects.group);
 
-    // Post-proceso: bloom + tone mapping en el pase de salida; MSAA en el objetivo intermedio.
-    const target = new WebGLRenderTarget(1, 1, { type: HalfFloatType, samples: 4 });
+    this.applyQuality(true);
+    this.setTheme('day', true);
+  }
+
+  /** Cambia el nivel de calidad en caliente: reconstruye lo que depende de él. */
+  setTier(tier: Tier): void {
+    if (this.quality.tier === tier) return;
+    this.quality = TIERS[tier];
+    this.applyQuality(false);
+    // Materiales, estadio y coches dependen del nivel (Lambert, público, sombras...).
+    const theme = this.themeId;
+    this.themeId = null;
+    if (theme) this.setTheme(theme, true);
+    this.simRoot.remove(this.ball.group, this.ball.blob);
+    this.ball = buildBallMesh(this.quality);
+    this.ball.mesh.scale.setScalar(this.ballScale);
+    this.simRoot.add(this.ball.group, this.ball.blob);
+    if (this.world && this.lookOf)
+      this.setWorld(this.world, this.focusCarId, this.lookOf, this.explosionOf);
+  }
+
+  /** Aplica los ajustes globales del nivel actual (sombras, post-proceso, reflejos, partículas). */
+  private applyQuality(initial: boolean): void {
+    const q = this.quality;
+    const r = this.renderer;
+    r.shadowMap.enabled = q.shadows > 0;
+    r.shadowMap.type = q.tier === 'high' ? PCFSoftShadowMap : PCFShadowMap;
+    this.sun.castShadow = q.shadows > 0;
+    if (q.shadows > 0) {
+      this.sun.shadow.mapSize.set(q.shadows, q.shadows);
+      this.sun.shadow.map?.dispose();
+      this.sun.shadow.map = null;
+      this.sun.shadow.autoUpdate = !q.shadowLite;
+    }
+    this.scene.environment = q.envMap ? this.envTexture : null;
+    this.effects.setRate(q.particles);
+    this.blobs.mesh.visible = q.shadows === 0;
+    this.buildComposer();
+    this.setRenderScale(initial ? this.renderScale : this.renderScale);
+  }
+
+  private buildComposer(): void {
+    const q = this.quality;
+    if (this.composer) {
+      this.composer.dispose();
+      this.composer = null;
+      this.bloom = null;
+    }
+    if (!q.bloom && q.msaa === 0) return; // dibujo directo: la ruta más barata
+    const target = new WebGLRenderTarget(1, 1, { type: HalfFloatType, samples: q.msaa });
     this.composer = new EffectComposer(this.renderer, target);
     this.composer.addPass(new RenderPass(this.scene, this.camera));
-    this.bloom = new UnrealBloomPass(new Vector2(1, 1), 0.3, 0.5, 0.9);
-    this.composer.addPass(this.bloom);
+    if (q.bloom) {
+      this.bloom = new UnrealBloomPass(new Vector2(1, 1), 0.3, 0.5, 0.9);
+      this.composer.addPass(this.bloom);
+      const t = this.themeId ? THEMES[this.themeId] : null;
+      if (t) this.setBloomFromTheme(t.bloom);
+    }
     this.composer.addPass(new OutputPass());
+    this.composer.setPixelRatio(this.renderer.getPixelRatio());
+    this.composer.setSize(this.width, this.height);
+    this.bloom?.resolution.set(this.width * q.bloomScale, this.height * q.bloomScale);
+  }
 
-    this.setTheme('day');
+  private setBloomFromTheme(b: { strength: number; radius: number; threshold: number }): void {
+    if (!this.bloom) return;
+    this.bloom.strength = b.strength;
+    this.bloom.radius = b.radius;
+    this.bloom.threshold = b.threshold;
+  }
+
+  /** Escala de resolución dinámica (0.5–1): reduce los píxeles dibujados sin tocar el diseño. */
+  setRenderScale(scale: number): void {
+    this.renderScale = scale;
+    const dpr = Math.min(window.devicePixelRatio || 1, this.quality.maxPixelRatio);
+    const pr = Math.max(0.4, dpr * scale);
+    this.renderer.setPixelRatio(pr);
+    this.composer?.setPixelRatio(pr);
+    if (this.width > 1) {
+      this.renderer.setSize(this.width, this.height, false);
+      this.composer?.setSize(this.width, this.height);
+      this.bloom?.resolution.set(
+        this.width * this.quality.bloomScale,
+        this.height * this.quality.bloomScale,
+      );
+    }
+    this.effects.setViewportHeight(this.height * pr);
+  }
+
+  /** Contadores del último frame (para depuración y pruebas). */
+  stats(): { calls: number; triangles: number; geometries: number; textures: number } {
+    const i = this.renderer.info;
+    return {
+      calls: i.render.calls,
+      triangles: i.render.triangles,
+      geometries: i.memory.geometries,
+      textures: i.memory.textures,
+    };
   }
 
   /** Aplica un tema: reconstruye estadio y entorno (geometría idéntica, otra paleta). */
-  setTheme(id: Theme): void {
-    if (this.themeId === id) return;
+  setTheme(id: Theme, force = false): void {
+    if (this.themeId === id && !force) return;
     this.themeId = id;
     const t = THEMES[id];
     if (this.arena) {
@@ -165,21 +265,20 @@ export class GameRenderer {
       this.simRoot.remove(this.stadium.group);
       this.stadium.dispose();
     }
-    this.arena = buildArena(t);
-    this.stadium = buildStadium(t);
+    this.arena = buildArena(t, this.quality);
+    this.stadium = buildStadium(t, this.quality);
     this.simRoot.add(this.arena.group, this.stadium.group);
     this.scene.background = new Color(t.background);
     this.scene.fog = new Fog(t.fog, t.fogNear, t.fogFar);
     this.scene.environmentIntensity = t.envIntensity;
+    this.scene.environment = this.quality.envMap ? this.envTexture : null;
     this.hemi.color.set(t.hemiSky);
     this.hemi.groundColor.set(t.hemiGround);
     this.hemi.intensity = t.hemiIntensity;
     this.sun.color.set(t.sunColor);
     this.sun.intensity = t.sunIntensity;
     this.renderer.toneMappingExposure = t.exposure;
-    this.bloom.strength = t.bloom.strength;
-    this.bloom.radius = t.bloom.radius;
-    this.bloom.threshold = t.bloom.threshold;
+    this.setBloomFromTheme(t.bloom);
   }
 
   /** Escala visual de la pelota (mutador de tamaño). */
@@ -198,18 +297,23 @@ export class GameRenderer {
     lookOf: (carId: number) => CarLook,
     explosionOf: (carId: number) => GoalExplosion = () => 'classic',
   ): void {
+    this.lookOf = lookOf;
+    this.explosionOf = explosionOf;
     this.world = world;
     this.focusCarId = focusCarId;
     for (const c of this.cars) {
       this.simRoot.remove(c.visual.group);
       c.visual.dispose();
     }
-    if (this.padsGroup) this.simRoot.remove(this.padsGroup);
+    if (this.pads) {
+      this.simRoot.remove(this.pads.group);
+      this.pads.dispose();
+    }
     this.trails = [];
     this.explosions = [];
     this.cars = world.cars.map((car) => {
       const look = lookOf(car.id);
-      const visual = buildCarMesh(CAR_BODIES[car.body.id], look);
+      const visual = buildCarMesh(CAR_BODIES[car.body.id], look, this.quality);
       this.simRoot.add(visual.group);
       this.trails.push(look.trail);
       this.explosions.push(explosionOf(car.id));
@@ -217,10 +321,9 @@ export class GameRenderer {
     });
     this.carRenderPos = world.cars.map(() => new Vec3());
     this.fxCars = world.cars.map(() => createFxCar());
-    const pads = buildPadMeshes(world.pads);
-    this.simRoot.add(pads.group);
-    this.padsGroup = pads.group;
-    this.padVisuals = pads.visuals;
+    this.visuals = this.cars.map((c) => c.visual);
+    this.pads = buildPadMeshes(world.pads);
+    this.simRoot.add(this.pads.group);
     this.debug.setCars(world.cars);
     this.effects.clear();
     this.stadium?.setScore(0, 0);
@@ -243,12 +346,9 @@ export class GameRenderer {
   resize(width: number, height: number): void {
     this.width = width;
     this.height = Math.max(1, height);
-    this.renderer.setSize(width, height, false);
-    this.composer.setSize(width, height);
-    this.bloom.resolution.set(width / 2, height / 2);
+    this.setRenderScale(this.renderScale);
     this.camera.aspect = width / Math.max(1, height);
     this.camera.updateProjectionMatrix();
-    this.effects.setViewportHeight(height * this.renderer.getPixelRatio());
   }
 
   // ------------------------------------------------------------ vista previa
@@ -257,7 +357,7 @@ export class GameRenderer {
   setPreview(bodyId: CarBodyId, look: CarLook): void {
     this.clearPreview();
     const spec = CAR_BODIES[bodyId];
-    const visual = buildCarMesh(spec, look);
+    const visual = buildCarMesh(spec, look, this.quality);
     visual.group.position.set(0, 0, spec.height / 2 + 4);
     const platform = new Mesh(
       new CylinderGeometry(260, 280, 8, 40),
@@ -309,7 +409,7 @@ export class GameRenderer {
     for (const c of this.cars) c.visual.group.visible = false;
     this.ball.group.visible = false;
     this.ball.blob.visible = false;
-    if (this.padsGroup) this.padsGroup.visible = false;
+    if (this.pads) this.pads.group.visible = false;
 
     const fx = this.previewFx;
     fx.pos.set(0, 0, spec.height / 2 + 4);
@@ -338,12 +438,12 @@ export class GameRenderer {
     );
     this.sun.target.position.set(0, 0, 0);
     this.sun.position.copy(this.sun.target.position).addScaledVector(SUN_OFFSET, 2500);
-    this.composer.render(dt);
+    this.draw(dt);
     this.camera.clearViewOffset();
     for (const c of this.cars) c.visual.group.visible = true;
     this.ball.group.visible = true;
     this.ball.blob.visible = true;
-    if (this.padsGroup) this.padsGroup.visible = true;
+    if (this.pads) this.pads.group.visible = true;
   }
 
   private applyPose(pose: CameraPose): void {
@@ -367,6 +467,8 @@ export class GameRenderer {
     if (!world) return;
     const frame = view?.frame;
     this.lastTime += frameDt;
+    this.frameCounter++;
+    this.renderer.info.reset();
 
     // Pelota.
     const b = world.ball;
@@ -463,14 +565,9 @@ export class GameRenderer {
       fx.demolished = demolished;
     });
 
-    for (const p of this.padVisuals) updatePadVisual(p);
-    this.effects.update(
-      frameDt,
-      this.fxCars,
-      this.cars.map((c) => c.visual),
-      this.ballPos,
-      this.trails,
-    );
+    this.pads?.update();
+    this.effects.update(frameDt, this.fxCars, this.visuals, this.ballPos, this.trails);
+    this.updateShadows();
     this.stadium?.update(frameDt);
 
     // Cámara.
@@ -488,7 +585,50 @@ export class GameRenderer {
     this.sun.position.copy(this.sun.target.position).addScaledVector(SUN_OFFSET, 2500);
 
     this.debug.update(alpha);
-    this.composer.render(frameDt);
+    this.draw(frameDt);
+  }
+
+  /** Dibuja la escena por la ruta de post-proceso o directa, según el nivel. */
+  private draw(dt: number): void {
+    if (this.composer) this.composer.render(dt);
+    else this.renderer.render(this.scene, this.camera);
+  }
+
+  /** Sombras según el nivel: manchas instanciadas (bajo), sombras de pocos objetos (medio) o todas (alto). */
+  private updateShadows(): void {
+    const q = this.quality;
+    if (q.shadows === 0) {
+      const world = this.world;
+      if (!world) return;
+      let n = 0;
+      world.cars.forEach((car, i) => {
+        const p = this.carRenderPos[i];
+        if (!p || car.demolished) return;
+        this.tq.set(
+          this.fxCars[i].quat.x,
+          this.fxCars[i].quat.y,
+          this.fxCars[i].quat.z,
+          this.fxCars[i].quat.w,
+        );
+        this.tv.set(1, 0, 0).applyQuaternion(this.tq);
+        this.blobs.set(
+          n++,
+          p.x,
+          p.y,
+          p.z,
+          Math.atan2(-this.tv.z, this.tv.x),
+          car.body.length * 1.5,
+          car.body.width * 1.9,
+        );
+      });
+      this.blobs.commit(n);
+      return;
+    }
+    if (q.shadowLite) {
+      // Sólo el coche del jugador proyecta sombra y el mapa se actualiza un frame de cada dos.
+      this.cars.forEach((c, i) => c.visual.setShadow(i === this.focusCarId));
+      this.sun.shadow.needsUpdate = this.frameCounter % 2 === 0;
+    }
   }
 
   /** Proyecta un punto de la simulación a píxeles de pantalla; devuelve false si queda detrás de la cámara. */
@@ -503,7 +643,9 @@ export class GameRenderer {
     this.arena?.dispose();
     this.stadium?.dispose();
     this.effects.dispose();
-    this.composer.dispose();
+    this.blobs.dispose();
+    this.pads?.dispose();
+    this.composer?.dispose();
     this.renderer.dispose();
   }
 }

@@ -4,6 +4,8 @@ import type { Action, GarageSettings, GoalExplosion, Theme } from './config';
 import { AudioEngine } from './audio';
 import type { Listener } from './audio';
 import { botBody, botLook, playerLook } from './render/looks';
+import { detectProfile } from './render/gpu';
+import { PerformanceGovernor } from './render/quality';
 import { loadAudio, loadGarage } from './storage';
 import type { ResolvedMutators } from './config';
 import { GameLoop } from './core/loop';
@@ -30,6 +32,9 @@ const REPLAY_AFTER = 2;
 
 export class Game {
   private renderer: GameRenderer;
+  private governor: PerformanceGovernor;
+  private adaptive = true;
+  private profile: ReturnType<typeof detectProfile>;
   private keyboard: KeyboardInput;
   private hud: Hud;
   private matchHud: MatchHud;
@@ -64,7 +69,13 @@ export class Game {
     private hudRoot: HTMLElement,
     private debugEl: HTMLElement,
   ) {
-    this.renderer = new GameRenderer(canvas);
+    // Calidad adaptativa: nivel inicial según la GPU y gobernador de rendimiento (60 FPS objetivo).
+    const profile = detectProfile(location.search);
+    this.profile = profile;
+    this.renderer = new GameRenderer(canvas, profile.start);
+    this.governor = new PerformanceGovernor(profile.start, profile.max);
+    this.adaptive = new URLSearchParams(location.search).get('adapt') !== '0';
+    this.renderer.setRenderScale(this.governor.scale);
     this.keyboard = new KeyboardInput(root);
     this.hud = new Hud(hudRoot);
     this.matchHud = new MatchHud(hudRoot, (a) => this.onEndAction(a));
@@ -429,6 +440,11 @@ export class Game {
 
   private frame(alpha: number, dt: number): void {
     this.menuTime += dt;
+    if (this.adaptive) {
+      const r = this.governor.update(dt * 1000);
+      if (r.tierChanged) this.renderer.setTier(this.governor.tier);
+      if (r.scaleChanged) this.renderer.setRenderScale(this.governor.scale);
+    }
     if (this.state === 'garage') {
       this.hudRoot.classList.add('hud-hidden');
       this.renderer.renderPreview(dt);
@@ -530,6 +546,11 @@ export class Game {
 
   private fwdTmp = new Vector3();
 
+  private formatStats(): string {
+    const st = this.renderer.stats();
+    return `${st.calls} llamadas  ${(st.triangles / 1000).toFixed(0)}k tris`;
+  }
+
   private updateDebug(car: Car): void {
     const s = this.loop.stats;
     const world = this.world;
@@ -539,6 +560,8 @@ export class Game {
       `ruedas ${car.wheelsInContact}/4  suelo ${car.grounded}  cuerpo ${car.bodyContact}  flip usado ${car.flipUsed}  aire ${car.airTime.toFixed(2)} s`,
       `pos ${car.pos.x.toFixed(0)}, ${car.pos.y.toFixed(0)}, ${car.pos.z.toFixed(0)}  pelota ${world.ball.pos.x.toFixed(0)}, ${world.ball.pos.y.toFixed(0)}, ${world.ball.pos.z.toFixed(0)}`,
       `repetición: ${this.recorder.length} fotogramas  fase ${world.match.phase}  mostrada ${this.replayShown}`,
+      `calidad ${this.renderer.quality.tier} (máx ${this.profile.max})  escala ${this.governor.scale}  frame ${this.governor.averageMs.toFixed(1)} ms  ${this.formatStats()}  ${this.governor.lastChange}`,
+      `GPU: ${this.profile.renderer || 'desconocida'}`,
       ...this.bots.bots.map(
         (b) =>
           `bot ${b.car.id} ${b.currentRole}  boost ${b.car.boost.toFixed(0)}  v ${b.car.speed.toFixed(0)}`,
