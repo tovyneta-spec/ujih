@@ -1,0 +1,20 @@
+# Despliegue en Fly.io: `fly launch --no-deploy` (cambia `app`) y `fly deploy`.
+app = "turbo-arena"
+primary_region = "mad"
+
+[build]
+
+[env]
+  PORT = "8080"
+  HOST = "0.0.0.0"
+  STATIC_DIR = "/app/dist"
+
+[http_service]
+  internal_port = 8080
+  force_https = true
+  auto_stop_machines = "off"   # las partidas viven en memoria: no apagar la máquina
+  min_machines_running = 1
+
+[[vm]]
+  size = "shared-cpu-1x"
+  memory = "512mb"

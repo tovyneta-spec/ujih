@@ -1,6 +1,6 @@
 // Controlador del juego: estados (menú / jugando / pausa), partidas, repeticiones y bucle principal.
 import { BALL, BOT_PROFILES, PHYSICS, QUICK_CHAT, resolveMutators } from './config';
-import type { Action, GarageSettings, GoalExplosion, Theme } from './config';
+import type { Action, BotLevel, GarageSettings, GoalExplosion, Theme } from './config';
 import { AudioEngine } from './audio';
 import type { Listener } from './audio';
 import { botBody, botLook, playerLook } from './render/looks';
@@ -11,11 +11,13 @@ import type { ResolvedMutators } from './config';
 import { GameLoop } from './core/loop';
 import { KeyboardInput } from './input/keyboard';
 import { Recorder, ReplayPlayer, createRenderFrame } from './replay';
+import { NetClient, OnlineMatch, defaultServerUrl } from './net';
+import type { Format, NetSetup } from './net';
 import { CinematicCam } from './render/cinematicCam';
 import type { RenderView } from './render/gameRenderer';
 import { GameRenderer } from './render/gameRenderer';
-import { BotManager, Series, World } from './sim';
-import type { Car, SimEvent } from './sim';
+import { BotManager, Series, World, copyInput, neutralInput } from './sim';
+import type { Car, CarInput, MatchSnapshot, SimEvent } from './sim';
 import { Vector3 } from 'three';
 import { Hud } from './ui/hud';
 import { HudExtras } from './ui/hudExtras';
@@ -29,6 +31,8 @@ type State = 'menu' | 'playing' | 'paused' | 'garage';
 /** Segundos de juego previos al gol / posteriores que se muestran en la repetición. */
 const REPLAY_BEFORE = 5;
 const REPLAY_AFTER = 2;
+/** Entradas por paquete enviado al servidor. */
+const INPUT_BATCH = 16;
 
 export class Game {
   private renderer: GameRenderer;
@@ -61,6 +65,14 @@ export class Game {
   private lastChat = -10;
   private audio = new AudioEngine(loadAudio());
   private garage: GarageSettings = loadGarage();
+  // Online: cliente de red, réplica con predicción y lote de entradas pendientes de envío.
+  private net: NetClient | null = null;
+  private online: OnlineMatch | null = null;
+  private netUrl = '';
+  private inBuf: CarInput[] = Array.from({ length: INPUT_BATCH }, () => neutralInput());
+  private inCount = 0;
+  private inSeq = 0;
+  private idle = neutralInput();
   private listener: Listener = { x: 0, y: 0, z: 0, rx: 1, ry: 0, rz: 0 };
 
   constructor(
@@ -85,13 +97,28 @@ export class Game {
       practice: () => this.startPractice(),
       resume: () => this.resume(),
       restart: () => this.rematch(),
-      abandon: () => this.toMenu(),
+      abandon: () => {
+        if (this.online) this.netDisconnect();
+        this.toMenu();
+      },
       garageEnter: (g) => this.enterGarage(g),
       garageChange: (g) => this.changeGarage(g),
       garageExplosion: (style) => this.renderer.previewExplosion(style),
       garageExit: () => this.exitGarage(),
       audioChange: (a) => this.audio.setSettings(a),
       ui: (k) => this.audio.ui(k),
+      online: {
+        connect: (url) => this.netConnect(url),
+        disconnect: () => this.netDisconnect(),
+        quick: (f: Format, l: BotLevel) => this.net?.send({ t: 'quick', format: f, level: l }),
+        create: (f: Format, l: BotLevel, m: number) =>
+          this.net?.send({ t: 'create', format: f, level: l, durationMinutes: m }),
+        join: (code) => this.net?.send({ t: 'join', code }),
+        team: (team) => this.net?.send({ t: 'team', team }),
+        cfg: (c) => this.net?.send({ t: 'cfg', ...c }),
+        start: () => this.net?.send({ t: 'start' }),
+        leave: () => this.net?.send({ t: 'leave' }),
+      },
     });
     // Política de autoplay: el audio arranca con la primera interacción.
     const unlock = (): void => this.audio.unlock();
@@ -107,7 +134,7 @@ export class Game {
 
     // Auto-pausa al perder el foco.
     const autoPause = (): void => {
-      if (this.state === 'playing') this.pause();
+      if (this.state === 'playing' && !this.online) this.pause();
     };
     window.addEventListener('blur', autoPause);
     document.addEventListener('visibilitychange', () => {
@@ -158,6 +185,9 @@ export class Game {
   }
 
   private toMenu(): void {
+    this.online = null;
+    this.hud.setPing(null);
+    this.hud.setReconnecting(false);
     this.renderer.clearPreview();
     this.background();
     this.state = 'menu';
@@ -268,15 +298,149 @@ export class Game {
   /** Apariencia: el coche del jugador usa el garaje; los demás, su equipo. */
   private lookOf(world: World, id: number): ReturnType<typeof playerLook> {
     const car = world.cars[id];
+    const nc = this.online?.setup.cars[id];
+    if (nc) return playerLook(nc.look, car.team);
     return this.human && id === this.human.id
       ? playerLook(this.garage, car.team)
       : botLook(id, car.team);
   }
 
   private explosionOf(world: World, id: number): GoalExplosion {
+    const nc = this.online?.setup.cars[id];
+    if (nc) return nc.look.explosion;
     return this.human && id === this.human.id
       ? this.garage.explosion
       : (['classic', 'fireworks', 'confetti'] as const)[(id + world.cars[id].team) % 3];
+  }
+
+  // ------------------------------------------------------------------ online
+
+  private netConnect(url: string): void {
+    this.netUrl = url || defaultServerUrl();
+    this.net?.disconnect();
+    const g = this.garage;
+    this.net = new NetClient(
+      this.netUrl,
+      { name: g.name, look: g },
+      {
+        onStatus: (st, detail) => {
+          const text =
+            st === 'open'
+              ? 'Conectado'
+              : st === 'connecting'
+                ? 'Conectando…'
+                : st === 'reconnecting'
+                  ? 'Reconectando…'
+                  : (detail ?? 'Sin conexión');
+          this.menus.setOnlineStatus(st === 'open', text);
+          this.hud.setReconnecting(st === 'reconnecting' && !!this.online);
+          if (st === 'closed' && !this.online) this.menus.setOnlineStatus(false, text);
+        },
+        onLobby: (lobby) => {
+          if (this.net && lobby.state === 'lobby') {
+            if (this.online) this.leaveOnlineMatch();
+            this.menus.showLobby(lobby, this.net.playerId);
+          }
+        },
+        onStart: (setup, me, _tick, match) => this.startOnline(setup, me, match),
+        onSnapshot: (data) => this.online?.onSnapshot(data, performance.now()),
+        onEvents: (_tick, events) => {
+          if (this.online) for (const e of events) this.handleEvent(e);
+        },
+        onMatch: (_tick, info) => this.online?.applyMatchInfo(info),
+        onRtt: (ms) => {
+          if (this.online) this.hud.setPing(ms);
+        },
+        onError: (_code, message) => this.menus.notify(message),
+        onLeft: () => {
+          if (this.online) this.leaveOnlineMatch();
+          this.menus.showOnline();
+        },
+        onLost: () => {
+          this.net = null;
+          this.toMenu();
+          this.menus.showOnline();
+          this.menus.setOnlineStatus(false, 'Conexión perdida');
+          this.menus.notify('Se perdió la conexión con la partida');
+        },
+      },
+    );
+    this.net.connect();
+  }
+
+  private netDisconnect(): void {
+    this.net?.disconnect();
+    this.net = null;
+    this.menus.setOnlineStatus(false, 'Sin conexión');
+  }
+
+  /** Abandona la partida online en curso (la sala sigue abierta en el servidor). */
+  private leaveOnlineMatch(): void {
+    this.online = null;
+    this.inCount = 0;
+    this.hud.setPing(null);
+    this.hud.setReconnecting(false);
+    this.state = 'menu';
+    this.keyboard.enabled = false;
+    this.loop.timeScale = 1;
+    this.matchHud.reset();
+    this.matchHud.setVisible(false);
+    this.extras.setVisible(false);
+    this.background();
+  }
+
+  private startOnline(setup: NetSetup, me: number, match: MatchSnapshot): void {
+    const online = new OnlineMatch(setup, me);
+    online.applyMatchInfo(match);
+    const world = online.world;
+    this.online = online;
+    this.setup = null;
+    this.resolved = null;
+    this.isMatch = true;
+    this.world = world;
+    this.bots = new BotManager(world);
+    this.human = world.cars[me];
+    this.humanTeam = world.cars[me].team;
+    this.inCount = 0;
+    this.renderer.setTheme(setup.mutators.theme);
+    this.renderer.setWorld(
+      world,
+      me,
+      (id) => this.lookOf(world, id),
+      (id) => this.explosionOf(world, id),
+    );
+    this.audio.resetVoices();
+    this.renderer.setBallScale(setup.mutators.ball.radius / BALL.radius);
+    this.player = new ReplayPlayer(this.recorder, createRenderFrame(world.cars.length));
+    this.matchHud.names = setup.cars.map((c) => c.name);
+    this.matchHud.humanId = me;
+    this.matchHud.humanTeam = this.humanTeam;
+    this.matchHud.teamIds = [
+      world.cars.filter((c) => c.team === 0).map((c) => c.id),
+      world.cars.filter((c) => c.team === 1).map((c) => c.id),
+    ];
+    this.extras.setup(world, this.matchHud.names, me);
+    this.beginGame();
+    this.matchHud.setVisible(true);
+    this.extras.setVisible(true);
+    this.loop.timeScale = 1;
+    this.hud.setPing(this.net?.rtt || null);
+  }
+
+  /** Predice un tick local y acumula la entrada para enviarla al servidor. */
+  private onlineTick(dt: number, online: OnlineMatch): void {
+    const live = this.state === 'playing';
+    const input = live ? this.keyboard.poll(dt) : this.idle;
+    const seq = online.step(input);
+    if (this.inCount === 0) this.inSeq = seq;
+    copyInput(input, this.inBuf[this.inCount++]);
+    if (this.inCount >= INPUT_BATCH) this.flushInputs();
+  }
+
+  private flushInputs(): void {
+    if (this.inCount === 0) return;
+    this.net?.sendInputs(this.inSeq, this.inBuf.slice(0, this.inCount));
+    this.inCount = 0;
   }
 
   // ------------------------------------------------------------------ garaje
@@ -302,9 +466,9 @@ export class Game {
   private pause(): void {
     if (this.state !== 'playing') return;
     this.state = 'paused';
-    this.loop.paused = true;
+    this.loop.paused = !this.online; // online el mundo sigue corriendo (entrada neutra)
     this.keyboard.enabled = false;
-    this.menus.showPause(!this.isMatch);
+    this.menus.showPause(this.online ? 'online' : this.isMatch ? 'match' : 'practice');
   }
 
   private resume(): void {
@@ -318,6 +482,10 @@ export class Game {
   }
 
   private rematch(): void {
+    if (this.online) {
+      if (this.state === 'paused') this.resume();
+      return;
+    }
     if (!this.setup || !this.resolved) {
       if (this.state === 'paused') {
         this.startPractice();
@@ -335,6 +503,15 @@ export class Game {
   }
 
   private onEndAction(a: EndAction): void {
+    if (this.online) {
+      if (a === 'rematch') this.net?.send({ t: 'rematch' });
+      else if (a === 'change') this.net?.send({ t: 'leave' });
+      else {
+        this.netDisconnect();
+        this.toMenu();
+      }
+      return;
+    }
     if (a === 'rematch') this.rematch();
     else if (a === 'change') {
       this.toMenu();
@@ -423,6 +600,11 @@ export class Game {
   private fixedUpdate(dt: number): void {
     if (this.state === 'garage') return;
     const world = this.world;
+    const online = this.online;
+    if (online) {
+      this.onlineTick(dt, online);
+      return;
+    }
     this.bots.update();
     if (this.human && this.state === 'playing')
       world.setInput(this.human.id, this.keyboard.poll(dt));
@@ -460,6 +642,12 @@ export class Game {
 
     const world = this.world;
     const k = this.keyboard;
+    const online = this.online;
+    if (online) {
+      this.flushInputs();
+      online.predictor.smooth(dt);
+      this.loop.timeScale = online.paceScale();
+    }
     const inReplay = this.isMatch && world.match.phase === 'replay' && this.player.active;
 
     if (this.state === 'playing') {
@@ -477,7 +665,8 @@ export class Game {
         QUICK_CHAT.forEach((text, i) => {
           if (k.consumePress(`chat${i + 1}` as Action) && world.time - this.lastChat > 1) {
             this.lastChat = world.time;
-            world.emit({ type: 'chat', carId: this.human?.id ?? 0, text });
+            if (online) this.net?.send({ t: 'chat', idx: i });
+            else world.emit({ type: 'chat', carId: this.human?.id ?? 0, text });
           }
         });
       }
@@ -488,7 +677,9 @@ export class Game {
     }
 
     let view: RenderView | undefined;
-    if (inReplay) {
+    if (online) {
+      view = { frame: online.buildFrame(alpha, performance.now()) };
+    } else if (inReplay) {
       const total = world.match.config.replayTime || this.player.duration;
       const elapsed = Math.max(0, total - world.match.timer);
       this.player.seek(elapsed);

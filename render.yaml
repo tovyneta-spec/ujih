@@ -1,0 +1,10 @@
+# Render.com: "New → Blueprint" apuntando a este repositorio.
+services:
+  - type: web
+    name: turbo-arena
+    runtime: docker
+    plan: starter
+    healthCheckPath: /health
+    envVars:
+      - key: STATIC_DIR
+        value: /app/dist

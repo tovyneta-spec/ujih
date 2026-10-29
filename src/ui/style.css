@@ -675,3 +675,123 @@ button {
   margin-top: 12px;
   text-align: left;
 }
+
+.menu .status {
+  margin: 8px 0 12px;
+  padding: 6px 10px;
+  font-size: 14px;
+  border-radius: 8px;
+  background: rgba(255, 255, 255, 0.07);
+  text-align: left;
+}
+.menu .status.ok {
+  color: #7dff9a;
+}
+.menu .joinrow input {
+  flex: 1;
+  text-transform: uppercase;
+  letter-spacing: 0.25em;
+  text-align: center;
+  font-weight: 800;
+}
+.menu .code {
+  letter-spacing: 0.2em;
+  color: #ffd34d;
+}
+.menu .cfgrow {
+  display: flex;
+  gap: 8px;
+  justify-content: center;
+  margin-bottom: 8px;
+}
+.menu .teams {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 12px;
+  margin: 10px 0;
+  text-align: left;
+}
+.menu .tcol {
+  padding: 8px 10px;
+  border-radius: 10px;
+  background: rgba(255, 255, 255, 0.05);
+}
+.menu .tcol.t0 {
+  border-top: 3px solid #2f7bff;
+}
+.menu .tcol.t1 {
+  border-top: 3px solid #ff7a1f;
+}
+.menu .tcol h3 {
+  margin: 0 0 6px;
+  font-size: 14px;
+  opacity: 0.8;
+}
+.menu .prow {
+  display: flex;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 3px 0;
+  font-size: 14px;
+}
+.menu .prow.me b {
+  color: #ffd34d;
+}
+.menu .prow.free {
+  opacity: 0.45;
+}
+.dot {
+  display: inline-block;
+  width: 8px;
+  height: 8px;
+  margin-right: 5px;
+  border-radius: 50%;
+  background: #888;
+}
+.dot.good {
+  background: #4cd964;
+}
+.dot.mid {
+  background: #ffcc00;
+}
+.dot.bad {
+  background: #ff5252;
+}
+.notice {
+  position: fixed;
+  left: 50%;
+  bottom: 28px;
+  transform: translateX(-50%);
+  padding: 10px 18px;
+  border-radius: 10px;
+  background: rgba(190, 30, 45, 0.92);
+  font-weight: 700;
+  z-index: 40;
+}
+.ping {
+  position: absolute;
+  left: max(14px, env(safe-area-inset-left));
+  top: 14px;
+  padding: 3px 10px;
+  font-size: 13px;
+  font-weight: 700;
+  border-radius: 8px;
+  background: rgba(8, 14, 32, 0.65);
+}
+.ping[hidden] {
+  display: none;
+}
+.netbanner {
+  position: absolute;
+  left: 50%;
+  top: 38%;
+  transform: translateX(-50%);
+  padding: 12px 26px;
+  font-size: 24px;
+  font-weight: 800;
+  border-radius: 12px;
+  background: rgba(190, 30, 45, 0.9);
+}
+.netbanner[hidden] {
+  display: none;
+}

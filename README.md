@@ -100,6 +100,38 @@ npm run lint       # ESLint
 npm run format     # Prettier
 ```
 
+## Multijugador online
+
+Menú principal → **Jugar online**: conecta al servidor, elige partida rápida (1v1/2v2/3v3; los huecos
+se rellenan con bots) o crea una sala privada y comparte el **código**. En el lobby se elige equipo y el
+anfitrión ajusta formato, nivel de bots y duración; el ping se muestra en el HUD. Si se cae la conexión,
+el cliente reintenta durante 60 s con su token y recupera su coche; si no vuelve, un bot lo sustituye.
+
+```bash
+npm run server            # desarrollo: servidor en :8080 (ws://localhost:8080/ws)
+npm run dev               # cliente en :5173; en el menú online usa ws://localhost:8080/ws
+```
+
+Producción (un solo proceso sirve el cliente y los WebSockets):
+
+```bash
+npm run build && npm run build:server
+STATIC_DIR=dist PORT=8080 npm run start:server
+```
+
+| Variable          | Por defecto    | Uso                                                      |
+| ----------------- | -------------- | -------------------------------------------------------- |
+| `PORT` / `HOST`   | 8080 / 0.0.0.0 | Dirección de escucha                                     |
+| `STATIC_DIR`      | —              | Carpeta del cliente compilado (`dist`) a servir          |
+| `ALLOWED_ORIGINS` | (todos)        | Lista separada por comas de orígenes WebSocket admitidos |
+| `MAX_ROOMS`       | ver código     | Salas simultáneas máximas                                |
+| `MAX_PER_IP`      | ver código     | Conexiones simultáneas por IP                            |
+
+Despliegue: `Dockerfile` (imagen única), `fly.toml` (Fly.io), `render.yaml` (Render) o cualquier VPS con
+`node server.mjs` detrás de un proxy TLS (`wss://`) que reenvíe `Upgrade`. Las partidas viven en memoria:
+usa una sola instancia. Si el cliente está alojado en otro dominio (p. ej. un iframe), pásale
+`VITE_SERVER_URL` al compilar o escribe la URL en el menú online, y añade ese origen a `ALLOWED_ORIGINS`.
+
 ## Despliegue
 
 `npm run build` genera `dist/` con rutas **relativas** (`base: './'`): súbelo tal cual a GitHub Pages,

@@ -15,6 +15,8 @@ import {
 import type { BotLevel, GarageSettings, GoalExplosion, Mutators } from '../config';
 import { loadAudio, loadGarage, sanitizeGarage, saveGarage } from '../storage';
 import type { AudioSettings } from '../storage';
+import { defaultServerUrl } from '../net/client';
+import type { Format, LobbyInfo } from '../net/protocol';
 import type { GameSetup } from './urlConfig';
 
 export interface MenuCallbacks {
@@ -31,9 +33,24 @@ export interface MenuCallbacks {
   audioChange(a: AudioSettings): void;
   /** Sonidos de interfaz. */
   ui(kind: 'click' | 'hover' | 'back'): void;
+  online: OnlineMenuApi;
 }
 
-type Screen = 'main' | 'quick' | 'custom' | 'credits' | 'pause' | 'garage' | 'audio';
+/** Acciones online que dispara la interfaz. */
+export interface OnlineMenuApi {
+  connect(url: string): void;
+  disconnect(): void;
+  quick(format: Format, level: BotLevel): void;
+  create(format: Format, level: BotLevel, minutes: number): void;
+  join(code: string): void;
+  team(team: 0 | 1): void;
+  cfg(patch: { format?: Format; level?: BotLevel; durationMinutes?: number }): void;
+  start(): void;
+  leave(): void;
+}
+
+type Screen =
+  'main' | 'quick' | 'custom' | 'credits' | 'pause' | 'garage' | 'audio' | 'online' | 'lobby';
 
 interface Option {
   value: string | number | boolean;
@@ -226,14 +243,37 @@ function save(s: Saved): void {
   }
 }
 
+const SERVER_KEY = 'turbo-arena:server';
+
+function loadServerUrl(): string {
+  try {
+    return localStorage.getItem(SERVER_KEY) || defaultServerUrl();
+  } catch {
+    return defaultServerUrl();
+  }
+}
+
+function saveServerUrl(url: string): void {
+  try {
+    localStorage.setItem(SERVER_KEY, url);
+  } catch {
+    /* sin almacenamiento */
+  }
+}
+
 export class Menus {
   private root: HTMLElement;
   private screen: Screen | null = null;
   private saved: Saved = load();
-  private practicePause = false;
   private garage: GarageSettings = loadGarage();
   private audio: AudioSettings = loadAudio();
   private lastHover: HTMLButtonElement | null = null;
+  private pauseMode: 'practice' | 'match' | 'online' = 'match';
+  private onlineConnected = false;
+  private onlineText = 'Sin conexión';
+  private serverUrl = loadServerUrl();
+  private lobby: LobbyInfo | null = null;
+  private myId = -1;
 
   constructor(
     parent: HTMLElement,
@@ -273,8 +313,8 @@ export class Menus {
     this.open('main');
   }
 
-  showPause(practice: boolean): void {
-    this.practicePause = practice;
+  showPause(mode: 'practice' | 'match' | 'online'): void {
+    this.pauseMode = mode;
     this.open('pause');
   }
 
@@ -284,7 +324,11 @@ export class Menus {
       e.preventDefault();
       if (this.screen === 'pause') this.cb.resume();
       else if (this.screen === 'garage') this.leaveGarage();
-      else if (this.screen !== 'main') this.open('main');
+      else if (this.screen === 'lobby') this.cb.online.leave();
+      else if (this.screen === 'online') {
+        this.cb.online.disconnect();
+        this.open('main');
+      } else if (this.screen !== 'main') this.open('main');
     }
   }
 
@@ -306,6 +350,10 @@ export class Menus {
         return this.renderGarage();
       case 'audio':
         return this.renderAudio();
+      case 'online':
+        return this.renderOnline();
+      case 'lobby':
+        return this.renderLobby();
     }
   }
 
@@ -327,6 +375,7 @@ export class Menus {
         <button class="btn primary" data-go="quick">Jugar</button>
         <button class="btn" data-go="custom">Partida personalizada</button>
         <button class="btn" data-go="practice">Práctica libre</button>
+        <button class="btn" data-go="online">Jugar online</button>
         <button class="btn" data-go="garage">Garaje</button>
         <button class="btn" data-go="audio">Audio</button>
         <button class="btn" data-go="credits">Créditos</button>
@@ -340,6 +389,7 @@ export class Menus {
       this.cb.garageEnter(this.garage);
     });
     this.on('[data-go=audio]', () => this.open('audio'));
+    this.on('[data-go=online]', () => this.open('online'));
     this.on('[data-go=practice]', () => this.cb.practice());
   }
 
@@ -577,6 +627,207 @@ export class Menus {
     this.on('[data-go=back]', () => this.open('main'));
   }
 
+  // ----------------------------------------------------------------- online
+
+  /** Muestra la pantalla de conexión online. */
+  showOnline(): void {
+    this.open('online');
+  }
+
+  /** Estado de la conexión (se refleja en la pantalla Online sin reconstruirla). */
+  setOnlineStatus(connected: boolean, text: string): void {
+    this.onlineConnected = connected;
+    this.onlineText = text;
+    if (this.screen !== 'online') return;
+    const el = this.root.querySelector('[data-status]');
+    if (el) {
+      el.textContent = text;
+      el.classList.toggle('ok', connected);
+    }
+    this.root.querySelector('[data-connected]')?.toggleAttribute('hidden', !connected);
+    const btn = this.root.querySelector('[data-go=connect]');
+    if (btn) btn.textContent = connected ? 'Desconectar' : 'Conectar';
+  }
+
+  /** Mensaje de error/aviso breve sobre el menú actual. */
+  notify(text: string): void {
+    const el = document.createElement('div');
+    el.className = 'notice';
+    el.textContent = text;
+    this.root.appendChild(el);
+    setTimeout(() => el.remove(), 4000);
+  }
+
+  private renderOnline(): void {
+    const m = this.saved.mutators;
+    this.render(`
+      <h2>Jugar online</h2>
+      <label class="field"><span>Servidor</span><input type="text" data-url value="${this.serverUrl}" spellcheck="false" /></label>
+      <div class="status ${this.onlineConnected ? 'ok' : ''}" data-status>${this.onlineText}</div>
+      <div data-connected ${this.onlineConnected ? '' : 'hidden'}>
+        ${this.segment('ofmt', 'Formato', FIELDS[0].options, m.format)}
+        ${this.segment('olvl', 'Nivel de los bots', FIELDS[1].options, m.botLevel)}
+        <div class="buttons">
+          <button class="btn primary" data-go="quick">Partida rápida</button>
+          <button class="btn" data-go="create">Crear sala privada</button>
+        </div>
+        <div class="row joinrow"><span>Unirse con código</span>
+          <div class="segs"><input type="text" data-code maxlength="5" placeholder="ABCDE" autocapitalize="characters" spellcheck="false" />
+          <button class="btn" data-go="join">Unirse</button></div></div>
+      </div>
+      <div class="buttons">
+        <button class="btn" data-go="back">Atrás</button>
+        <button class="btn" data-go="connect">${this.onlineConnected ? 'Desconectar' : 'Conectar'}</button>
+      </div>`);
+    const sel: Record<string, string> = { ofmt: m.format, olvl: m.botLevel };
+    this.root.querySelectorAll<HTMLElement>('.seg').forEach((b) =>
+      b.addEventListener('click', () => {
+        const name = b.dataset.seg as string;
+        sel[name] = b.dataset.v as string;
+        this.root
+          .querySelectorAll<HTMLElement>(`.seg[data-seg=${name}]`)
+          .forEach((x) => x.classList.toggle('on', x === b));
+      }),
+    );
+    const url = (): string =>
+      (this.root.querySelector<HTMLInputElement>('input[data-url]')?.value ?? '').trim();
+    this.on('[data-go=connect]', () => {
+      if (this.onlineConnected) this.cb.online.disconnect();
+      else {
+        this.serverUrl = url();
+        saveServerUrl(this.serverUrl);
+        this.setOnlineStatus(false, 'Conectando…');
+        this.cb.online.connect(this.serverUrl);
+      }
+    });
+    this.on('[data-go=quick]', () =>
+      this.cb.online.quick(sel.ofmt as Format, sel.olvl as BotLevel),
+    );
+    this.on('[data-go=create]', () =>
+      this.cb.online.create(sel.ofmt as Format, sel.olvl as BotLevel, 5),
+    );
+    this.on('[data-go=join]', () => {
+      const code = (this.root.querySelector<HTMLInputElement>('input[data-code]')?.value ?? '')
+        .trim()
+        .toUpperCase();
+      this.cb.online.join(code);
+    });
+    this.on('[data-go=back]', () => {
+      this.cb.online.disconnect();
+      this.open('main');
+    });
+  }
+
+  /** Muestra o actualiza el lobby de la sala. */
+  showLobby(lobby: LobbyInfo, myId: number): void {
+    this.lobby = lobby;
+    this.myId = myId;
+    if (this.screen !== 'lobby') {
+      this.open('lobby');
+      return;
+    }
+    this.fillLobby();
+  }
+
+  private renderLobby(): void {
+    const l = this.lobby;
+    if (!l) return;
+    const host = l.hostId === this.myId;
+    const opt = (cur: string, list: [string, string][]): string =>
+      list
+        .map(([v, t]) => `<option value="${v}" ${v === cur ? 'selected' : ''}>${t}</option>`)
+        .join('');
+    this.render(`
+      <h2>Sala <span class="code" data-code-text>${l.code}</span></h2>
+      <p class="note" data-meta></p>
+      <div class="cfgrow" ${host ? '' : 'hidden'}>
+        <select data-cfg="format">${opt(l.format, [
+          ['1v1', '1v1'],
+          ['2v2', '2v2'],
+          ['3v3', '3v3'],
+        ])}</select>
+        <select data-cfg="level">${opt(
+          l.botLevel,
+          FIELDS[1].options.map((o) => [String(o.value), o.label] as [string, string]),
+        )}</select>
+        <select data-cfg="durationMinutes">${opt(String(l.durationMinutes), [
+          ['3', '3 min'],
+          ['5', '5 min'],
+          ['10', '10 min'],
+          ['20', '20 min'],
+        ])}</select>
+      </div>
+      <div class="teams" data-teams></div>
+      <p class="note" data-auto></p>
+      <div class="buttons">
+        <button class="btn" data-go="leave">Salir</button>
+        <button class="btn" data-go="team">Cambiar de equipo</button>
+        <button class="btn primary" data-go="start" ${host ? '' : 'disabled'}>${host ? 'Iniciar partida' : 'Esperando al anfitrión'}</button>
+      </div>`);
+    this.root.querySelectorAll<HTMLSelectElement>('select[data-cfg]').forEach((sel) =>
+      sel.addEventListener('change', () => {
+        const key = sel.dataset.cfg as 'format' | 'level' | 'durationMinutes';
+        this.cb.online.cfg({ [key]: key === 'durationMinutes' ? Number(sel.value) : sel.value });
+      }),
+    );
+    this.on('[data-go=leave]', () => this.cb.online.leave());
+    this.on('[data-go=start]', () => this.cb.online.start());
+    this.on('[data-go=team]', () => {
+      const me = this.lobby?.players.find((p) => p.id === this.myId);
+      if (me) this.cb.online.team(me.team === 0 ? 1 : 0);
+    });
+    this.fillLobby();
+  }
+
+  /** Actualiza las partes dinámicas del lobby sin destruir los selectores. */
+  private fillLobby(): void {
+    const l = this.lobby;
+    if (!l) return;
+    const host = l.hostId === this.myId;
+    const dot = (ms: number, connected: boolean): string =>
+      `<i class="dot ${!connected ? 'off' : ms < 60 ? 'good' : ms < 130 ? 'mid' : 'bad'}"></i>${connected ? `${ms} ms` : 'desconectado'}`;
+    const col = (team: 0 | 1): string => {
+      const mine = l.players.filter((p) => p.team === team);
+      const rows = mine
+        .map(
+          (p) =>
+            `<div class="prow ${p.id === this.myId ? 'me' : ''}"><b>${p.isHost ? '★ ' : ''}${p.name}</b><span>${dot(p.ping, p.connected)}</span></div>`,
+        )
+        .join('');
+      const free = Array.from(
+        { length: Math.max(0, l.perTeam - mine.length) },
+        () => '<div class="prow free">— bot —</div>',
+      ).join('');
+      return `<div class="tcol t${team}"><h3>${team === 0 ? 'Azul' : 'Naranja'}</h3>${rows}${free}</div>`;
+    };
+    const teams = this.root.querySelector('[data-teams]');
+    if (teams) teams.innerHTML = col(0) + col(1);
+    const meta = this.root.querySelector('[data-meta]');
+    if (meta) {
+      meta.textContent = `${l.public ? 'Partida rápida' : 'Sala privada'} · ${l.format} · bots ${BOT_PROFILES[l.botLevel].name} · ${l.durationMinutes} min · Comparte el código ${l.code} para invitar`;
+    }
+    const auto = this.root.querySelector('[data-auto]');
+    if (auto)
+      auto.textContent =
+        l.autoStartIn !== null
+          ? `La partida empieza en ${l.autoStartIn} s (las plazas libres las ocupan bots)`
+          : '';
+    const cfg = this.root.querySelector('.cfgrow');
+    cfg?.toggleAttribute('hidden', !host);
+    this.root.querySelectorAll<HTMLSelectElement>('select[data-cfg]').forEach((sel) => {
+      if (document.activeElement === sel) return;
+      const key = sel.dataset.cfg as 'format' | 'level' | 'durationMinutes';
+      const v =
+        key === 'format' ? l.format : key === 'level' ? l.botLevel : String(l.durationMinutes);
+      sel.value = v;
+    });
+    const start = this.root.querySelector<HTMLButtonElement>('[data-go=start]');
+    if (start) {
+      start.disabled = !host;
+      start.textContent = host ? 'Iniciar partida' : 'Esperando al anfitrión';
+    }
+  }
+
   private renderCredits(): void {
     this.render(`
       <h2>Créditos</h2>
@@ -596,8 +847,8 @@ export class Menus {
       <h2>Pausa</h2>
       <div class="stack">
         <button class="btn primary" data-go="resume">Continuar</button>
-        ${this.practicePause ? '' : '<button class="btn" data-go="restart">Reiniciar partida</button>'}
-        <button class="btn" data-go="abandon">${this.practicePause ? 'Salir al menú' : 'Abandonar partida'}</button>
+        ${this.pauseMode === 'match' ? '<button class="btn" data-go="restart">Reiniciar partida</button>' : ''}
+        <button class="btn" data-go="abandon">${this.pauseMode === 'practice' ? 'Salir al menú' : 'Abandonar partida'}</button>
       </div>
       <p class="foot">Esc para continuar</p>`);
     this.on('[data-go=resume]', () => this.cb.resume());

@@ -102,6 +102,21 @@ un jugador**, sin trampas de velocidad ni teletransportes (hay un test que lo co
 demoliciones, reaparición, duración, goles máximos y prórroga. La velocidad de juego escala el bucle de render
 (`GameLoop.timeScale`) sin tocar el paso fijo, y la serie al mejor de N la gestiona `Series`.
 
+## Online (`src/net/`, `server/`)
+
+- **Autoridad**: el servidor ejecuta el mismo `sim/` a 120 Hz (bots incluidos, con la misma `CarInput`)
+  y emite snapshots binarios a 60 Hz (`SNAPSHOT_EVERY = 2`) más eventos y estado de reglas en JSON.
+- **Protocolo** (`protocol.ts`): control en JSON (`hello`, `quick`, `create`, `join`, `team`, `cfg`,
+  `start`, `rematch`, `leave`, `ping`, `chat`); entradas y snapshots en binario little-endian (`state.ts`).
+- **Predicción** (`predictor.ts`): el cliente simula su coche y la pelota cada tick local, guarda las
+  entradas sin confirmar y, al llegar un snapshot, restaura el estado y las re-simula. El error se
+  absorbe con un desfase visual de decaimiento exponencial (salto limpio si supera 300 uu).
+- **Interpolación** (`interpolation.ts`): coches remotos con 80 ms de retardo y reloj suavizado.
+- **Ritmo**: el servidor informa la longitud de su cola de entradas; el cliente ajusta ±3 % su reloj.
+- **Robustez**: cubos de fichas por mensaje, validación y saneado de entradas, expulsión por faltas
+  repetidas y límites por IP/salas (`limits.ts`); reconexión con token (60 s) y sustitución por bot.
+- Online no hay repeticiones de gol (los mutadores fuerzan `replayTime = 0`).
+
 ## Ejes y unidades
 
 Unidades de juego (uu, 1 uu = 1 cm). Ejes de la simulación: x = ancho, y = largo (portería azul en y < 0),

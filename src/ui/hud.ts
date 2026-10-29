@@ -13,7 +13,10 @@ export class Hud {
   private lastSpeed = -1;
   imperial = false;
 
+  private root: HTMLElement;
+
   constructor(root: HTMLElement) {
+    this.root = root;
     root.innerHTML = `
       <div class="boost" aria-label="Turbo">
         <svg viewBox="0 0 120 120" width="160" height="160">
@@ -23,6 +26,8 @@ export class Hud {
         <div class="boost-num">33</div>
         <div class="speed"><b>0</b> km/h</div>
       </div>
+      <div class="ping" hidden></div>
+      <div class="netbanner" hidden>Reconectando…</div>
       <div class="hint">
         <b>WASD</b> conducir · <b>Espacio</b> saltar (otra vez + dirección = flip) · <b>Shift</b> turbo ·
         <b>Ctrl/Z</b> derrape · <b>Q/E</b> giro aéreo · <b>C</b> cámara de pelota · <b>V</b> mirar atrás ·
@@ -33,6 +38,22 @@ export class Hud {
     this.speedText = root.querySelector('.speed b') as HTMLElement;
     this.hint = root.querySelector('.hint') as HTMLElement;
     setTimeout(() => this.hint.classList.add('fade'), 12000);
+  }
+
+  /** Indicador de ping online (null lo oculta). */
+  setPing(ms: number | null): void {
+    const el = this.root.querySelector('.ping') as HTMLElement;
+    if (ms === null) {
+      el.hidden = true;
+      return;
+    }
+    el.hidden = false;
+    const q = ms < 60 ? '#4cd964' : ms < 130 ? '#ffcc00' : '#ff5252';
+    el.innerHTML = `<span style="color:${q}">●</span> ${Math.round(ms)} ms`;
+  }
+
+  setReconnecting(on: boolean): void {
+    (this.root.querySelector('.netbanner') as HTMLElement).hidden = !on;
   }
 
   update(car: Car): void {

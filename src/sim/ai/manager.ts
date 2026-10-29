@@ -54,6 +54,14 @@ export class BotManager {
     return bot;
   }
 
+  /** Devuelve el control del coche a quien lo tuviera (p. ej. un jugador que se reconecta). */
+  remove(carId: number): void {
+    const i = this.bots.findIndex((b) => b.car.id === carId);
+    if (i >= 0) this.bots.splice(i, 1);
+    this.intercepts.delete(carId);
+    this.roles.delete(carId);
+  }
+
   isBot(carId: number): boolean {
     return this.bots.some((b) => b.car.id === carId);
   }
